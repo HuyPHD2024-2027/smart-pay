@@ -287,6 +287,7 @@ class IntfWireless(Intf):
             return self.cmd(cmd)
 
         self.cmd('ip -6 addr flush ', self.name)
+        self.ipLink('up')
         return self.cmd('ip -6 addr add', args[0], 'dev', self.name)
 
     def ipLink(self, *args):
