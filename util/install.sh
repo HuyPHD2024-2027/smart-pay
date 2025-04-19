@@ -523,7 +523,12 @@ function of {
     else
         $install git-core autotools-dev pkg-config libc6-dev
     fi
-    git clone --depth=1 https://github.com/ramonfontes/openflow
+    if [ "$DIST" = "Ubuntu" ] &&  [ `expr $RELEASE '>=' 24.04` = "1" ]; then
+        git clone --depth=1 https://github.com/ramonfontes/openflow
+    else
+        git clone --depth=1 https://github.com/mininet/openflow
+    fi
+    
     cd $BUILD_DIR/openflow
 
     # Patch controller to handle more than 16 switches
