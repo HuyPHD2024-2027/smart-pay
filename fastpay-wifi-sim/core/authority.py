@@ -12,7 +12,12 @@ from uuid import UUID, uuid4
 # Import from mininet-wifi
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+
+# Add the parent directory to Python path to find mn_wifi
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(os.path.dirname(current_dir))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
@@ -315,6 +320,27 @@ class WiFiAuthority(Station):
         """
         self.setPosition(f"{x},{y},{z}")
         
+    def get_distance_to(self, peer: 'WiFiAuthority') -> float:
+        """Calculate distance to another authority node.
+        
+        Args:
+            peer: Target authority node
+            
+        Returns:
+            Distance in meters
+        """
+        try:
+            if hasattr(self, 'position') and hasattr(peer, 'position'):
+                import math
+                dx = self.position[0] - peer.position[0]
+                dy = self.position[1] - peer.position[1]
+                dz = self.position[2] - peer.position[2] if len(self.position) > 2 and len(peer.position) > 2 else 0
+                return math.sqrt(dx*dx + dy*dy + dz*dz)
+            return float('inf')  # Unknown distance
+        except Exception as e:
+            self.logger.error(f"Error calculating distance: {e}")
+            return float('inf')
+    
     def get_signal_strength_to(self, peer: 'WiFiAuthority') -> float:
         """Get signal strength to another authority.
         
