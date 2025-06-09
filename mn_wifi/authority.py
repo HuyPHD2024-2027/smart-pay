@@ -9,20 +9,10 @@ from queue import Queue
 from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
 
-# Import from mininet-wifi
-import sys
-import os
-
-# Add the parent directory to Python path to find mn_wifi
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(current_dir))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
 
-from .base_types import (
+from mn_wifi.base_types import (
     Account,
     Address,
     AuthorityState,
@@ -32,7 +22,7 @@ from .base_types import (
     TransactionStatus,
     TransferOrder,
 )
-from .messages import (
+from mn_wifi.messages import (
     ConfirmationRequestMessage,
     Message,
     MessageType,
@@ -40,8 +30,8 @@ from .messages import (
     TransferRequestMessage,
     TransferResponseMessage,
 )
-from .metrics import MetricsCollector
-from .wifi_interface import WiFiInterface
+from mn_wifi.metrics import MetricsCollector
+from mn_wifi.wifi_interface import WiFiInterface
 
 
 class WiFiAuthority(Station):
@@ -53,6 +43,7 @@ class WiFiAuthority(Station):
         committee_members: Set[str],
         shard_assignments: Optional[Set[str]] = None,
         ip: str = '10.0.0.1/8',
+        port: int = 8080,
         position: Optional[List[float]] = None,
         **params
     ) -> None:
@@ -94,7 +85,7 @@ class WiFiAuthority(Station):
         self.host_address = Address(
             node_id=name,
             ip_address=ip.split('/')[0],
-            port=8080,  # Default port for FastPay communication
+            port=port,  
             node_type=NodeType.AUTHORITY
         )
         

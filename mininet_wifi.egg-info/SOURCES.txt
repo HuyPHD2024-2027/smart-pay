@@ -1,3 +1,4 @@
+LICENSE
 README.md
 setup.py
 bin/mn
@@ -8,6 +9,8 @@ mininet_wifi.egg-info/requires.txt
 mininet_wifi.egg-info/top_level.txt
 mn_wifi/__init__.py
 mn_wifi/associationControl.py
+mn_wifi/authority.py
+mn_wifi/base_types.py
 mn_wifi/bmv2.py
 mn_wifi/clean.py
 mn_wifi/cli.py
@@ -16,6 +19,8 @@ mn_wifi/energy.py
 mn_wifi/frequency.py
 mn_wifi/link.py
 mn_wifi/manetRoutingProtocols.py
+mn_wifi/messages.py
+mn_wifi/metrics.py
 mn_wifi/mobility.py
 mn_wifi/module.py
 mn_wifi/net.py
@@ -27,6 +32,7 @@ mn_wifi/replaying.py
 mn_wifi/telemetry.py
 mn_wifi/topo.py
 mn_wifi/vanet.py
+mn_wifi/wifi_interface.py
 mn_wifi/wmediumdConnector.py
 mn_wifi/btvirt/__init__.py
 mn_wifi/btvirt/clean.py
@@ -47,6 +53,7 @@ mn_wifi/examples/active_scan.py
 mn_wifi/examples/adhoc.py
 mn_wifi/examples/associationControl.py
 mn_wifi/examples/authentication.py
+mn_wifi/examples/authority.py
 mn_wifi/examples/battery.py
 mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/forwardingBySSID.py
