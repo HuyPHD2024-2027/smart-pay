@@ -40,7 +40,6 @@ class WiFiInterface:
         self.server_thread: Optional[threading.Thread] = None
         self.message_queue: Queue[Message] = Queue()
         self.running = False
-
         
     def connect(self) -> bool:
         """Establish WiFi connection and start TCP server.
