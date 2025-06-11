@@ -24,7 +24,7 @@ from mn_wifi.net import Mininet_wifi
 
 # Import FastPay components
 from core.authority import WiFiAuthority
-from core.base_types import Account, TransferOrder, Address, NodeType
+from core.baseTypes import Account, TransferOrder, Address, NodeType
 from core.messages import Message, MessageType
 from uuid import uuid4
 

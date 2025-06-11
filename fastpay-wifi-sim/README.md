@@ -69,7 +69,7 @@ python -m pytest tests/core/test_authority.py::TestWiFiAuthority::test_handle_tr
 
 ```python
 from core.authority import WiFiAuthority
-from core.base_types import Address, NodeType
+from core.baseTypes import Address, NodeType
 
 # Create authority address
 address = Address(

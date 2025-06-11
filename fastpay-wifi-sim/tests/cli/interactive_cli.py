@@ -15,7 +15,7 @@ from uuid import uuid4
 from mininet.log import setLogLevel, info
 
 from .message_handler import MessageType, Message, MessageBroker
-from core.base_types import TransferOrder
+from core.baseTypes import TransferOrder
 
 
 class FastPayUser:

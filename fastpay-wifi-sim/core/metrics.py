@@ -3,7 +3,7 @@
 import time
 from typing import Any, Dict
 
-from .base_types import NetworkMetrics
+from .baseTypes import NetworkMetrics
 
 
 class MetricsCollector:

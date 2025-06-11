@@ -3,7 +3,7 @@
 import time
 from typing import Any, Dict
 
-from mn_wifi.base_types import NetworkMetrics
+from mn_wifi.baseTypes import NetworkMetrics
 
 
 class MetricsCollector:

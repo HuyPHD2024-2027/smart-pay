@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
 
-from mn_wifi.base_types import (
+from mn_wifi.baseTypes import (
     Account,
     Address,
     AuthorityState,
@@ -31,7 +31,7 @@ from mn_wifi.messages import (
     TransferResponseMessage,
 )
 from mn_wifi.metrics import MetricsCollector
-from mn_wifi.wifi_interface import WiFiInterface
+from mn_wifi.wifiInterface import WiFiInterface
 
 
 class WiFiAuthority(Station):
@@ -131,8 +131,7 @@ class WiFiAuthority(Station):
             daemon=True
         )
         self._sync_thread.start()
-        
-        self.logger.info(f"Authority {self.name} started successfully")
+        self.logger.success(f"Authority {self.name} started successfully")
         return True
     
     def stop_fastpay_services(self) -> None:
@@ -496,7 +495,6 @@ class WiFiAuthority(Station):
             try:
                 message = self.network_interface.receive_message(timeout=1.0)
                 if message:
-                    self.message_queue.put(message)
                     self._process_message(message)
             except Exception as e:
                 self.logger.error(f"Error in message handler loop: {e}")

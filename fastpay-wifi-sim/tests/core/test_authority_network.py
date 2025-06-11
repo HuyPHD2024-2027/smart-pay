@@ -20,9 +20,9 @@ import pytest
 from pytest_mock import MockerFixture
 
 from core.authority import WiFiAuthority
-from core.base_types import Account, TransferOrder, Address, NodeType
+from core.baseTypes import Account, TransferOrder, Address, NodeType
 from core.messages import Message, MessageType, TransferRequestMessage
-from core.wifi_interface import WiFiInterface
+from core.wifiInterface import WiFiInterface
 
 
 class MockWiFiInterface:

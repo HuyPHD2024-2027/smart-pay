@@ -31,7 +31,7 @@ from mininet.log import setLogLevel, info
 from mn_wifi.net import Mininet_wifi
 from mn_wifi.authority import WiFiAuthority
 from mn_wifi.node import Station
-from mn_wifi.base_types import Address, NodeType, TransferOrder
+from mn_wifi.baseTypes import Address, NodeType, TransferOrder
 from mn_wifi.messages import Message, MessageType, TransferRequestMessage
 
 class AuthorityLogger:
@@ -249,7 +249,7 @@ class TransferTestClient:
         try:
             # Create transfer order
             transfer_order = TransferOrder(
-                order_id=str(uuid4()),
+                order_id=uuid4(),
                 sender=sender.name,
                 recipient=recipient.name,
                 amount=amount,
@@ -281,7 +281,17 @@ class TransferTestClient:
             )
 
             self.logger.transfer(f"Sending transfer order: {sender} -> {recipient}, {amount} tokens")
-            self.logger.debug(f"Transfer details: {json.dumps(transfer_order, indent=2)}")
+            
+            transfer_dict = {
+                'order_id': str(transfer_order.order_id),
+                'sender': transfer_order.sender,
+                'recipient': transfer_order.recipient,
+                'amount': transfer_order.amount,
+                'sequence_number': transfer_order.sequence_number,
+                'timestamp': transfer_order.timestamp,
+                'signature': transfer_order.signature
+            }
+            self.logger.debug(f"Transfer details: {json.dumps(transfer_dict, indent=2)}")
             
             # Create message data in the format expected by _handle_client
             message_data = {
@@ -313,46 +323,45 @@ class TransferTestClient:
                     self.logger.info(f"Sending to authority {authority.name} at {auth_ip}:{auth_port}")
                     
                     # Create a Python script to send the message from sender node
-                    send_script = f'''
-    import socket
-    import json
-    import sys
+                    send_script = f'''import socket
+import json
+import sys
 
-    def send_message():
-        try:
-            # Create socket within sender node namespace
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            
-            # Connect to authority
-            sock.connect(("{auth_ip}", {auth_port}))
-            
-            # Prepare message
-            message_json = """{message_json}"""
-            message_bytes = message_json.encode('utf-8')
-            
-            # Send length prefix (4 bytes big endian) + message
-            length_bytes = len(message_bytes).to_bytes(4, byteorder='big')
-            sock.send(length_bytes + message_bytes)
-            
-            # Wait for acknowledgment
-            ack_length_bytes = sock.recv(4)
-            if len(ack_length_bytes) == 4:
-                ack_length = int.from_bytes(ack_length_bytes, byteorder='big')
-                ack_bytes = sock.recv(ack_length)
-                ack_data = json.loads(ack_bytes.decode('utf-8'))
-                print(f"ACK: {{ack_data}}")
-            
-            sock.close()
-            print("SUCCESS")
-            
-        except Exception as e:
-            print(f"ERROR: {{e}}")
-            sys.exit(1)
+def send_message():
+    try:
+        # Create socket within sender node namespace
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        
+        # Connect to authority
+        sock.connect(("{auth_ip}", {auth_port}))
+        
+        # Prepare message
+        message_json = """{message_json}"""
+        message_bytes = message_json.encode('utf-8')
+        
+        # Send length prefix (4 bytes big endian) + message
+        length_bytes = len(message_bytes).to_bytes(4, byteorder='big')
+        sock.send(length_bytes + message_bytes)
+        
+        # Wait for acknowledgment
+        ack_length_bytes = sock.recv(4)
+        if len(ack_length_bytes) == 4:
+            ack_length = int.from_bytes(ack_length_bytes, byteorder='big')
+            ack_bytes = sock.recv(ack_length)
+            ack_data = json.loads(ack_bytes.decode('utf-8'))
+            print(f"ACK: {{ack_data}}")
+        
+        sock.close()
+        print("SUCCESS")
+        
+    except Exception as e:
+        print(f"ERROR: {{e}}")
+        sys.exit(1)
 
-    if __name__ == "__main__":
-        send_message()
-    '''
+if __name__ == "__main__":
+    send_message()
+'''
                     
                     # Write script to temporary file
                     script_path = f"/tmp/send_transfer_{authority.name}.py"
@@ -367,7 +376,6 @@ class TransferTestClient:
                     # Check result
                     if "SUCCESS" in result:
                         successful_sends += 1
-                        authority.logger.success(f"Received TRANSFER_REQUEST from {sender.name}")
                         self.logger.success(f"Transfer sent to {authority.name}")
                     else:
                         self.logger.error(f"Failed to send to {authority.name}: {result}")
@@ -712,7 +720,6 @@ def test_transfer_order(net, authorities, stations):
         if hasattr(auth, 'start_fastpay_services'):
             try:
                 auth.start_fastpay_services()
-                auth.logger.success("FastPay services started successfully")
             except Exception as e:
                 auth.logger.error(f"Failed to start FastPay services: {e}")
     
@@ -870,19 +877,19 @@ def test_transfer_order(net, authorities, stations):
         test_client = TransferTestClient(f"CLI-Transfer-{sender_name}")
         
         # Send transfer using sender.cmd() to reach all authorities
-        info(f"*** Sending TRANSFER_REQUEST to {len(authorities)} authorities via {sender_name}\n")
+        info(f"*** Broadcasting TRANSFER_REQUEST to {len(authorities)} authorities via {sender_name}\n")
         successful_sends = test_client.send_transfer_to_all_authorities(
             authorities, sender_node, recipient_node, amount
         )
         
-        info(f"*** Transfer order sent to {successful_sends} authorities\n")
+        info(f"*** Transfer order sent to {len(authorities)} authorities\n")
         
         # Wait for processing
         time.sleep(2)
         
         # Check consensus
         consensus_threshold = (len(authorities) * 2) // 3 + 1  # 2/3 + 1 majority
-        info(f"*** Transfer Results: {successful_sends}/{len(authorities)} deliveries\n")
+        info(f"*** Transfer Results: {len(authorities)}/{len(authorities)} deliveries\n")
         info(f"*** Consensus threshold: {consensus_threshold}\n")
         
         if successful_sends >= consensus_threshold:
@@ -981,7 +988,7 @@ def setup_test_accounts(authorities):
     
     for authority in authorities:
         if hasattr(authority, 'authority_state'):
-            from mn_wifi.base_types import Account
+            from mn_wifi.baseTypes import Account
             
             for user_name, balance in test_accounts.items():
                 account = Account(

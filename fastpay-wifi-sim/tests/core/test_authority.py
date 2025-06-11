@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from core.authority import MetricsCollector, WiFiAuthority, WiFiInterface
-from core.base_types import (
+from core.baseTypes import (
     Account,
     Address,
     ConfirmationOrder,

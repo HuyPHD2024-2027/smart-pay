@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
-from .base_types import Address, ConfirmationOrder, TransferOrder
+from .baseTypes import Address, ConfirmationOrder, TransferOrder
 
 
 class MessageType(Enum):

@@ -14,7 +14,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from .authority import WiFiAuthority
 
-from .base_types import Address, NodeType
+from .baseTypes import Address, NodeType
 from .messages import Message, MessageType
 
 

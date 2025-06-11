@@ -22,7 +22,7 @@ if parent_dir not in sys.path:
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
 
-from .base_types import (
+from .baseTypes import (
     Account,
     Address,
     AuthorityState,
@@ -41,7 +41,7 @@ from .messages import (
     TransferResponseMessage,
 )
 from .metrics import MetricsCollector
-from .wifi_interface import WiFiInterface
+from .wifiInterface import WiFiInterface
 
 
 class WiFiAuthority(Station):

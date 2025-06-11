@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
 
-from mn_wifi.base_types import Address, ConfirmationOrder, TransferOrder
+from mn_wifi.baseTypes import Address, ConfirmationOrder, TransferOrder
 
 
 class MessageType(Enum):
@@ -71,19 +71,24 @@ class TransferRequestMessage:
     def to_payload(self) -> Dict[str, Any]:
         """Convert to message payload."""
         return {
-            'order_id': str(self.transfer_order.order_id),
-            'sender': str(self.transfer_order.sender),
-            'recipient': str(self.transfer_order.recipient),
-            'amount': self.transfer_order.amount,
-            'sequence_number': self.transfer_order.sequence_number,
-            'timestamp': self.transfer_order.timestamp,
-            'signature': self.transfer_order.signature
+            'transfer_order': {
+                'order_id': str(self.transfer_order.order_id),
+                'sender': str(self.transfer_order.sender),
+                'recipient': str(self.transfer_order.recipient),
+                'amount': self.transfer_order.amount,
+                'sequence_number': self.transfer_order.sequence_number,
+                'timestamp': self.transfer_order.timestamp,
+                'signature': self.transfer_order.signature
+            }
         }
     
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> TransferRequestMessage:
         """Create from message payload."""
         transfer_data = payload['transfer_order']
+
+        if isinstance(transfer_data.get('order_id'), str):
+            transfer_data['order_id'] = UUID(transfer_data['order_id'])
         transfer_order = TransferOrder(**transfer_data)
         return cls(
             transfer_order=transfer_order,

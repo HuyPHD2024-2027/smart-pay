@@ -10,7 +10,7 @@ mininet_wifi.egg-info/top_level.txt
 mn_wifi/__init__.py
 mn_wifi/associationControl.py
 mn_wifi/authority.py
-mn_wifi/base_types.py
+mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
 mn_wifi/clean.py
 mn_wifi/cli.py
@@ -32,7 +32,7 @@ mn_wifi/replaying.py
 mn_wifi/telemetry.py
 mn_wifi/topo.py
 mn_wifi/vanet.py
-mn_wifi/wifi_interface.py
+mn_wifi/wifiInterface.py
 mn_wifi/wmediumdConnector.py
 mn_wifi/btvirt/__init__.py
 mn_wifi/btvirt/clean.py
