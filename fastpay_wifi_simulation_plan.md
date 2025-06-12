@@ -39,7 +39,7 @@ fastpay-wifi-sim/
 # Key components to implement:
 class WiFiAuthority:
     """Authority node that runs on mininet-wifi host"""
-    - authority_state: FastPayAuthorityState
+    - state: FastPayAuthorityState
     - network_interface: WiFiInterface
     - p2p_connections: Dict[AuthorityName, Connection]
     - message_queue: Queue

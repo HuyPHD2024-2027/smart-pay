@@ -216,7 +216,7 @@ class TransferTestClient:
                 
             # Get the first interface's IP address
             auth_ip = authority.wintfs[0].ip
-            auth_port = authority.host_address.port
+            auth_port = authority.address.port
             
             self.logger.info(f"Connecting to authority {authority.name} at {auth_ip}:{auth_port}")
             
@@ -318,7 +318,7 @@ class TransferTestClient:
                     auth_ip = authority.wintfs[0].ip
                     if '/' in auth_ip:
                         auth_ip = auth_ip.split('/')[0]
-                    auth_port = authority.host_address.port
+                    auth_port = authority.address.port
                     
                     self.logger.info(f"Sending to authority {authority.name} at {auth_ip}:{auth_port}")
                     
@@ -690,8 +690,8 @@ def test_transfer_order(net, authorities, stations):
         if hasattr(authority, 'wintfs') and authority.wintfs:
             wintf = list(authority.wintfs.values())[0]
             info(f"***      IP: {wintf.ip}, MAC: {wintf.mac}\n")
-        if hasattr(authority, 'host_address'):
-            info(f"***      FastPay Port: {authority.host_address.port}\n")
+        if hasattr(authority, 'address'):
+            info(f"***      FastPay Port: {authority.address.port}\n")
     
     # Print station information
     for i, station in enumerate(stations):
@@ -987,7 +987,7 @@ def setup_test_accounts(authorities):
     }
     
     for authority in authorities:
-        if hasattr(authority, 'authority_state'):
+        if hasattr(authority, 'state'):
             from mn_wifi.baseTypes import Account
             
             for user_name, balance in test_accounts.items():
@@ -997,7 +997,7 @@ def setup_test_accounts(authorities):
                     sequence_number=0,
                     last_update=time.time()
                 )
-                authority.authority_state.accounts[user_name] = account
+                authority.state.accounts[user_name] = account
             
             info(f"   ✅ {authority.name}: Setup {len(test_accounts)} accounts\n")
         else:
@@ -1021,9 +1021,9 @@ def test_authority_functionality(authorities):
         info(f"      📡 Network Information:\n")
         
         # Print IP address and port
-        if hasattr(authority, 'host_address'):
-            info(f"         IP Address: {authority.host_address.ip_address}\n")
-            info(f"         Port: {authority.host_address.port}\n")
+        if hasattr(authority, 'address'):
+            info(f"         IP Address: {authority.address.ip_address}\n")
+            info(f"         Port: {authority.address.port}\n")
         
         # Print wireless interface information
         if hasattr(authority, 'wintfs'):
@@ -1054,7 +1054,7 @@ def test_authority_functionality(authorities):
             info(f"      🔧 Starting FastPay services...\n")
             try:
                 if authority.start_fastpay_services():
-                    info(f"      ✅ FastPay services started on port {authority.host_address.port}\n")
+                    info(f"      ✅ FastPay services started on port {authority.address.port}\n")
                     
                     # Test account balances
                     if hasattr(authority, 'get_account_balance'):

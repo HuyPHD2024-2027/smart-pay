@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from queue import Queue
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Protocol
 from uuid import UUID, uuid4
 
 from mn_wifi.node import Station
@@ -30,8 +30,16 @@ from mn_wifi.messages import (
     TransferRequestMessage,
     TransferResponseMessage,
 )
+from mn_wifi.client import TransportKind  # Enum shared across modules
+
+# Dedicated transport implementations
+from mn_wifi.transport import NetworkTransport, TransportKind
+from mn_wifi.tcp import TCPTransport
+from mn_wifi.udp import UDPTransport
+from mn_wifi.wifiDirect import WiFiDirectTransport
+
 from mn_wifi.metrics import MetricsCollector
-from mn_wifi.wifiInterface import WiFiInterface
+
 
 
 class WiFiAuthority(Station):
@@ -57,7 +65,12 @@ class WiFiAuthority(Station):
             position: Position of the node [x, y, z]
             **params: Additional parameters for Station
         """
-        # Set default parameters for the Station
+        # Extract transport configuration parameters **before** updating default_params so that
+        # we don't forward them to Station.__init__, which would not recognise them.
+
+        transport_kind = params.pop("transport_kind", TransportKind.TCP)
+        transport: Optional[NetworkTransport] = params.pop("transport", None)
+
         default_params = {
             'ip': ip,
             'position': position or [0, 0, 0],
@@ -71,7 +84,7 @@ class WiFiAuthority(Station):
         super().__init__(name, **default_params)
         
         # FastPay specific attributes
-        self.authority_state = AuthorityState(
+        self.state = AuthorityState(
             name=name,
             shard_assignments=shard_assignments or set(),
             accounts={},
@@ -82,7 +95,7 @@ class WiFiAuthority(Station):
         )
         
         # Create address from mininet-wifi node information
-        self.host_address = Address(
+        self.address = Address(
             node_id=name,
             ip_address=ip.split('/')[0],
             port=port,  
@@ -100,50 +113,71 @@ class WiFiAuthority(Station):
         # Configure logging
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(f"WiFiAuthority-{name}")
-        self.network_interface = WiFiInterface(self, self.host_address)
         
-    def cmd(self, *args, **kwargs):
-        """Send command to node."""
-        return super().cmd(*args, **kwargs)
-    
+        # ------------------------------------------------------------------
+        # Transport selection (default = TCP for backward-compatibility)
+        # ------------------------------------------------------------------
+
+        if transport is not None:
+            self.transport: NetworkTransport = transport
+        else:
+            if transport_kind == TransportKind.TCP:
+                self.transport = TCPTransport(self, self.address)
+            elif transport_kind == TransportKind.UDP:
+                self.transport = UDPTransport(self, self.address)
+            elif transport_kind == TransportKind.WIFI_DIRECT:
+                self.transport = WiFiDirectTransport(self, self.address)
+            else:
+                raise ValueError(f"Unsupported transport kind: {transport_kind}")
+
     def start_fastpay_services(self) -> bool:
-        """Start the FastPay authority services.
-        
-        Returns:
-            True if started successfully, False otherwise
+        """Boot-strap background processing threads and ready the chosen transport.
+
+        The method preserves the previous external behaviour: it must be called explicitly after
+        the authority instance is added to Mininet-WiFi so that the node's namespace exists.
         """
-        if not self.network_interface.connect():
-            self.logger.error("Failed to connect network interface")
-            return False
-        
+
+        # Connect transport (if the implementation supports/needs it)
+        if hasattr(self.transport, "connect"):
+            try:
+                if not self.transport.connect():  # type: ignore[attr-defined]
+                    self.logger.error("Failed to connect transport")
+                    return False
+            except Exception as exc:  # pragma: no cover
+                self.logger.error("Transport connect error: %s", exc)
+                return False
+
         self._running = True
-        
-        # Start message handler thread
+
+        # Spawn background threads -----------------------------------------------------------
         self._message_handler_thread = threading.Thread(
             target=self._message_handler_loop,
-            daemon=True
+            daemon=True,
         )
         self._message_handler_thread.start()
-        
-        # Start sync thread
+
         self._sync_thread = threading.Thread(
             target=self._sync_loop,
-            daemon=True
+            daemon=True,
         )
         self._sync_thread.start()
-        self.logger.success(f"Authority {self.name} started successfully")
+
+        self.logger.info(f"Authority {self.name} started successfully")
         return True
     
     def stop_fastpay_services(self) -> None:
         """Stop the FastPay authority services."""
         self._running = False
-        self.network_interface.disconnect()
+        if hasattr(self.transport, "disconnect"):
+            try:
+                self.transport.disconnect()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover
+                pass
         
         if self._message_handler_thread:
             self._message_handler_thread.join(timeout=5.0)
         if self._sync_thread:
             self._sync_thread.join(timeout=5.0)
-        
         self.logger.info(f"Authority {self.name} stopped")
     
     def get_wireless_interface(self) -> Optional[IntfWireless]:
@@ -224,7 +258,7 @@ class WiFiAuthority(Station):
         Returns:
             True if sent successfully, False otherwise
         """
-        return self.network_interface.send_message(message, peer_address)
+        return self.transport.send_message(message, peer_address)
     
     def handle_transfer_order(self, transfer_order: TransferOrder) -> TransferResponseMessage:
         """Handle transfer order from client.
@@ -245,7 +279,7 @@ class WiFiAuthority(Station):
                 )
             
             # Check if sender account exists and has sufficient balance
-            sender_account = self.authority_state.accounts.get(transfer_order.sender)
+            sender_account = self.state.accounts.get(transfer_order.sender)
             if not sender_account:
                 return TransferResponseMessage(
                     order_id=transfer_order.order_id,
@@ -261,7 +295,7 @@ class WiFiAuthority(Station):
                 )
             
             # Add to pending transfers
-            self.authority_state.pending_transfers[transfer_order.order_id] = transfer_order
+            self.state.pending_transfers[transfer_order.order_id] = transfer_order
             
             # Update sender balance temporarily
             sender_account.balance -= transfer_order.amount
@@ -269,8 +303,8 @@ class WiFiAuthority(Station):
             sender_account.last_update = time.time()
             
             # Create recipient account if it doesn't exist
-            if transfer_order.recipient not in self.authority_state.accounts:
-                self.authority_state.accounts[transfer_order.recipient] = Account(
+            if transfer_order.recipient not in self.state.accounts:
+                self.state.accounts[transfer_order.recipient] = Account(
                     address=transfer_order.recipient,
                     balance=0,
                     sequence_number=0,
@@ -278,14 +312,14 @@ class WiFiAuthority(Station):
                 )
             
             # Update recipient balance
-            recipient_account = self.authority_state.accounts[transfer_order.recipient]
+            recipient_account = self.state.accounts[transfer_order.recipient]
             recipient_account.balance += transfer_order.amount
             recipient_account.last_update = time.time()
             
             self.performance_metrics.record_transaction()
             
             # Initiate committee confirmation if needed
-            if len(self.authority_state.committee_members) > 1:
+            if len(self.state.committee_members) > 1:
                 self._initiate_confirmation(transfer_order)
             
             return TransferResponseMessage(
@@ -314,11 +348,11 @@ class WiFiAuthority(Station):
         """
         try:
             # Store confirmation order
-            self.authority_state.confirmed_transfers[confirmation_order.order_id] = confirmation_order
+            self.state.confirmed_transfers[confirmation_order.order_id] = confirmation_order
             
             # Remove from pending if exists
-            if confirmation_order.order_id in self.authority_state.pending_transfers:
-                del self.authority_state.pending_transfers[confirmation_order.order_id]
+            if confirmation_order.order_id in self.state.pending_transfers:
+                del self.state.pending_transfers[confirmation_order.order_id]
             
             # Update confirmation status
             confirmation_order.status = TransactionStatus.CONFIRMED
@@ -343,7 +377,7 @@ class WiFiAuthority(Station):
         successful_sends = 0
         
         for peer_name, peer_address in self.p2p_connections.items():
-            if self.network_interface.send_message(message, peer_address):
+            if self.transport.send_message(message, peer_address):
                 successful_sends += 1
             else:
                 self.logger.warning(f"Failed to send message to peer {peer_name}")
@@ -359,15 +393,15 @@ class WiFiAuthority(Station):
         try:
             # Create sync request
             sync_request = SyncRequestMessage(
-                last_sync_time=self.authority_state.last_sync_time,
-                account_addresses=list(self.authority_state.accounts.keys())
+                last_sync_time=self.state.last_sync_time,
+                account_addresses=list(self.state.accounts.keys())
             )
             
             # Create message
             message = Message(
                 message_id=uuid4(),
                 message_type=MessageType.SYNC_REQUEST,
-                sender=self.host_address,
+                sender=self.address,
                 recipient=None,  # Broadcast
                 timestamp=time.time(),
                 payload=sync_request.to_payload()
@@ -377,7 +411,7 @@ class WiFiAuthority(Station):
             sent_count = self.broadcast_to_peers(message)
             
             if sent_count > 0:
-                self.authority_state.last_sync_time = time.time()
+                self.state.last_sync_time = time.time()
                 self.performance_metrics.record_sync()
                 self.logger.info(f"Sync request sent to {sent_count} peers")
                 return True
@@ -418,7 +452,7 @@ class WiFiAuthority(Station):
         Returns:
             Account balance or None if account not found
         """
-        account = self.authority_state.accounts.get(account_address)
+        account = self.state.accounts.get(account_address)
         return account.balance if account else None
     
     def get_performance_stats(self) -> Dict[str, Any]:
@@ -449,7 +483,7 @@ class WiFiAuthority(Station):
             return False
         
         # Check sequence number
-        sender_account = self.authority_state.accounts.get(transfer_order.sender)
+        sender_account = self.state.accounts.get(transfer_order.sender)
         if sender_account and transfer_order.sequence_number <= sender_account.sequence_number:
             return False
         
@@ -477,7 +511,7 @@ class WiFiAuthority(Station):
             message = Message(
                 message_id=uuid4(),
                 message_type=MessageType.CONFIRMATION_REQUEST,
-                sender=self.host_address,
+                sender=self.address,
                 recipient=None,  # Broadcast
                 timestamp=time.time(),
                 payload=confirmation_request.to_payload()
@@ -493,7 +527,7 @@ class WiFiAuthority(Station):
         """Main message handling loop."""
         while self._running:
             try:
-                message = self.network_interface.receive_message(timeout=1.0)
+                message = self.transport.receive_message(timeout=1.0)
                 if message:
                     self._process_message(message)
             except Exception as e:
@@ -515,12 +549,12 @@ class WiFiAuthority(Station):
                 response_message = Message(
                     message_id=uuid4(),
                     message_type=MessageType.TRANSFER_RESPONSE,
-                    sender=self.host_address,
+                    sender=self.address,
                     recipient=message.sender,
                     timestamp=time.time(),
                     payload=response.to_payload()
                 )
-                self.network_interface.send_message(response_message, message.sender)
+                self.transport.send_message(response_message, message.sender)
                 
             elif message.message_type == MessageType.CONFIRMATION_REQUEST:
                 request = ConfirmationRequestMessage.from_payload(message.payload)
@@ -538,8 +572,8 @@ class WiFiAuthority(Station):
         Args:
             message: Sync request message
         """
-        # Implementation for handling sync requests
-        # This would involve sending back account states, etc.
+        # Placeholder for handling sync requests.  Depending on the transport used, the
+        # semantics remain identical – we simply rely on *self.transport* for I/O.
         pass
     
     def _sync_loop(self) -> None:
