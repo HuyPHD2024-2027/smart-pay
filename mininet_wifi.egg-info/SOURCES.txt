@@ -14,6 +14,7 @@ mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
 mn_wifi/clean.py
 mn_wifi/cli.py
+mn_wifi/client.py
 mn_wifi/devices.py
 mn_wifi/energy.py
 mn_wifi/frequency.py
@@ -29,10 +30,13 @@ mn_wifi/nodelib.py
 mn_wifi/plot.py
 mn_wifi/propagationModels.py
 mn_wifi/replaying.py
+mn_wifi/tcp.py
 mn_wifi/telemetry.py
 mn_wifi/topo.py
+mn_wifi/transport.py
+mn_wifi/udp.py
 mn_wifi/vanet.py
-mn_wifi/wifiInterface.py
+mn_wifi/wifiDirect.py
 mn_wifi/wmediumdConnector.py
 mn_wifi/btvirt/__init__.py
 mn_wifi/btvirt/clean.py
