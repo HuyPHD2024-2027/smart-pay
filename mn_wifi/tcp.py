@@ -76,7 +76,7 @@ class TCPTransport:
         if not server_script:
             return False
 
-        # run in the node’s namespace
+        # run in the node's namespace
         self.node.cmd(f"python3 {server_script} 0.0.0.0 {self.address.port} "
                       f"{self.address.node_id} &")
         return True
@@ -191,60 +191,91 @@ if __name__ == '__main__':
             return None
     
     def send_message(self, message: Message, target: Address) -> bool:
-        """Send message to target address using TCP.
-        
-        Args:
-            message: Message to send
-            target: Target address
-            
-        Returns:
-            True if message sent successfully, False otherwise
+        """Send *message* to *target* by executing a small Python script **inside** the
+        sender node's namespace using :pymeth:`mininet.node.Node.cmd`.
+
+        This mirrors the technique used in *send_transfer_order* under
+        ``mn_wifi/examples/authority.py`` so that the TCP connection is opened from
+        within the network namespace of the station rather than the host
+        running the simulation.  Doing so avoids connectivity issues when the
+        virtual IP addresses are not reachable from the outside.
         """
-        if not self.is_connected:
-            return False
-        
+
+        # Serialise *message* to the JSON structure understood by the in-namespace
+        # servers (length-prefixed JSON, identical to the one used in the server
+        # script started by *connect()*).
+        import json  # local import to avoid bleeding into global namespace
+        import textwrap
+        import uuid
+
+        message_data = {
+            "message_id": str(message.message_id),
+            "message_type": message.message_type.value,
+            "sender": {
+                "node_id": message.sender.node_id,
+                "ip_address": message.sender.ip_address,
+                "port": message.sender.port,
+                "node_type": message.sender.node_type.value,
+            },
+            "timestamp": message.timestamp,
+            "payload": message.payload,
+        }
+
+        json_blob = json.dumps(message_data)
+
+        # ------------------------------------------------------------------
+        # Build tiny Python client script (runs inside node namespace)
+        # ------------------------------------------------------------------
+        client_code = textwrap.dedent(
+            f"""
+            import socket, struct, json, sys
+            data = {json_blob!r}
+            ip, port = {target.ip_address!r}, {target.port}
+            msg = data.encode('utf-8')
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((ip, port))
+                sock.send(struct.pack('>I', len(msg)) + msg)
+                # Optional ACK parsing
+                try:
+                    hdr = sock.recv(4, socket.MSG_WAITALL)
+                    if len(hdr) == 4:
+                        size = struct.unpack('>I', hdr)[0]
+                        sock.recv(size, socket.MSG_WAITALL)
+                except Exception:
+                    pass
+                sock.close()
+                print('SUCCESS')
+            except Exception as exc:
+                print(f'ERROR: {{exc}}', file=sys.stderr)
+                sys.exit(1)
+            """
+        )
+
+        script_path = f"/tmp/send_{uuid.uuid4().hex}.py"
+
         try:
-            # Create client socket
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.settimeout(5.0)
-            
-            # Connect to target
-            client_socket.connect((target.ip_address, target.port))
-            
-            # Serialize message
-            message_data = {
-                "message_id": str(message.message_id),
-                "message_type": message.message_type.value,
-                "sender": {
-                    "node_id": message.sender.node_id,
-                    "ip_address": message.sender.ip_address,
-                    "port": message.sender.port,
-                    "node_type": message.sender.node_type.value
-                },
-                "timestamp": message.timestamp,
-                "payload": message.payload
-            }
-            
-            json_data = json.dumps(message_data)
-            message_bytes = json_data.encode('utf-8')
-            
-            # Send message length first, then message
-            length_bytes = len(message_bytes).to_bytes(4, byteorder='big')
-            client_socket.send(length_bytes + message_bytes)
-            
-            # Receive acknowledgment (optional)
-            ack_length_bytes = client_socket.recv(4)
-            if len(ack_length_bytes) == 4:
-                ack_length = int.from_bytes(ack_length_bytes, byteorder='big')
-                ack_bytes = client_socket.recv(ack_length)
-                ack_data = json.loads(ack_bytes.decode('utf-8'))
-                
-            client_socket.close()
-            self.node.logger.debug(f"Sent message to {target.ip_address}:{target.port}")
-            return True
-            
-        except Exception as e:
-            self.node.logger.error(f"Failed to send message to {target.ip_address}:{target.port}: {e}")
+            # 1. Dump script inside the node's filesystem.
+            self.node.cmd(f"cat > {script_path} << 'PY'\n{client_code}\nPY")
+
+            # 2. Execute script from within the namespace.
+            output = self.node.cmd(f"python3 {script_path} | cat").strip()
+
+            # 3. Clean-up temporary file.
+            self.node.cmd(f"rm -f {script_path}")
+
+            if "SUCCESS" in output:
+                self.node.logger.debug(
+                    f"Sent message via in-namespace script to {target.ip_address}:{target.port}"
+                )
+                return True
+
+            self.node.logger.warning(
+                "In-namespace send failed: %s", output or "<no output>")
+            return False
+        except Exception as exc:  # pragma: no cover
+            self.node.logger.error(f"Failed to send message in namespace: {exc}")
             return False
     
     def receive_message(self, timeout: float = 1.0) -> Optional[Message]:

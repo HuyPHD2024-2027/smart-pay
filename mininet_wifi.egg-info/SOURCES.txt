@@ -10,11 +10,13 @@ mininet_wifi.egg-info/top_level.txt
 mn_wifi/__init__.py
 mn_wifi/associationControl.py
 mn_wifi/authority.py
+mn_wifi/authorityLogger.py
 mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
 mn_wifi/clean.py
 mn_wifi/cli.py
 mn_wifi/client.py
+mn_wifi/clientLogger.py
 mn_wifi/devices.py
 mn_wifi/energy.py
 mn_wifi/frequency.py
@@ -60,6 +62,8 @@ mn_wifi/examples/authentication.py
 mn_wifi/examples/authority.py
 mn_wifi/examples/battery.py
 mn_wifi/examples/coherenceModel.py
+mn_wifi/examples/fastpay_cli.py
+mn_wifi/examples/fastpay_demo.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
 mn_wifi/examples/handover_bgscan.py

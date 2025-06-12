@@ -54,7 +54,7 @@ class UDPTransport:  # pylint: disable=too-few-public-methods
             self._monitor_thread.start()
             return True
         except Exception as exc:  # pragma: no cover
-            self.logger.error("UDPTransport.connect failed: %s", exc)
+            self.logger.error(f"UDPTransport.connect failed: {exc}")
             return False
 
     def disconnect(self) -> None:  # type: ignore[override]
@@ -100,7 +100,7 @@ class UDPTransport:  # pylint: disable=too-few-public-methods
             self.node.cmd(cmd)
             return True
         except Exception as exc:  # pragma: no cover
-            self.logger.error("UDP send failed: %s", exc)
+            self.logger.error(f"UDP send failed: {exc}")
             return False
 
     def receive_message(self, timeout: float = 1.0) -> Optional[Message]:  # type: ignore[override]
@@ -140,7 +140,7 @@ while True:
             os.chmod(path, 0o755)
             return path
         except Exception as exc:  # pragma: no cover
-            self.logger.error("create UDP server script failed: %s", exc)
+            self.logger.error(f"create UDP server script failed: {exc}")
             return None
 
     def _monitor_log(self) -> None:
@@ -164,7 +164,7 @@ while True:
                 processed = len(lines)
                 time.sleep(0.1)
             except Exception as exc:  # pragma: no cover
-                self.logger.error("UDP monitor error: %s", exc)
+                self.logger.error(f"UDP monitor error: {exc}")
                 time.sleep(1)
 
     def _deserialise(self, data: Dict[str, Union[str, Dict[str, str]]]) -> Optional[Message]:
@@ -185,5 +185,5 @@ while True:
                 payload=data.get("payload", {}),  # type: ignore[arg-type]
             )
         except Exception as exc:  # pragma: no cover
-            self.logger.error("UDP deserialisation failed: %s", exc)
+            self.logger.error(f"UDP deserialisation failed: {exc}")
             return None 

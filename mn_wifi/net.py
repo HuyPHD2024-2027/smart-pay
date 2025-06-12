@@ -45,6 +45,8 @@ from mn_wifi.wwan.link import WWANLink
 from mn_wifi.wwan.net import Mininet_WWAN
 from mn_wifi.btvirt.net import Mininet_btvirt
 from mn_wifi.wwan.node import WWANNode
+from mn_wifi.authority import WiFiAuthority
+from mn_wifi.client import Client
 
 VERSION = "2.6"
 
@@ -52,6 +54,7 @@ VERSION = "2.6"
 class Mininet_wifi(Mininet, Mininet_IoT, Mininet_WWAN, Mininet_btvirt):
 
     def __init__(self, accessPoint=OVSKernelAP, station=Station, car=Car,
+                 authority=WiFiAuthority, client=Client,
                  sensor=LowPANNode, apsensor=OVSSensor, modem=WWANNode, link=WirelessLink,
                  ssid="new-ssid", mode="g", encrypt="", passwd=None, ieee80211w=None,
                  channel=1, freq=2.4, band=20, wmediumd_mode=snr, roads=0, fading_cof=0,
@@ -66,6 +69,8 @@ class Mininet_wifi(Mininet, Mininet_IoT, Mininet_WWAN, Mininet_btvirt):
            accessPoint: default Access Point class
            station: default Station class/constructor
            car: default Car class/constructor
+           authority: default Authority class/constructor
+           client: default Client class/constructor
            sensor: default Sensor class/constructor
            apsensor: default AP Sensor class/constructor
            modem: default Modem class/constructor
@@ -98,6 +103,8 @@ class Mininet_wifi(Mininet, Mininet_IoT, Mininet_WWAN, Mininet_btvirt):
         self.station = station
         self.accessPoint = accessPoint
         self.car = car
+        self.authority = authority
+        self.client = client
         self.nextPos_sta = 1  # start for sta position allocation
         self.nextPos_ap = 1  # start for ap position allocation
         self.autoSetPositions = autoSetPositions

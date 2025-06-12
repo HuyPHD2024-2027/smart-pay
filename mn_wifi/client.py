@@ -42,6 +42,7 @@ from mn_wifi.transport import NetworkTransport, TransportKind
 from mn_wifi.tcp import TCPTransport
 from mn_wifi.udp import UDPTransport
 from mn_wifi.wifiDirect import WiFiDirectTransport
+from mn_wifi.clientLogger import ClientLogger
 
 # Type aliases for clarity -----------------------------------------------------------------------
 AuthorityName = str
@@ -120,6 +121,9 @@ class Client(Station):
             node_type=NodeType.CLIENT,
         )
 
+        self.p2p_connections: Dict[str, Address] = {}
+        self.message_queue: Queue[Message] = Queue()
+
         self.state = ClientState(name=name, address=self.address)
 
         # Transport factory ------------------------------------------------------------------
@@ -135,7 +139,7 @@ class Client(Station):
             else:
                 raise ValueError(f"Unsupported transport kind: {transport_kind}")
 
-        self.logger = logging.getLogger(f"Client-{name}")
+        self.logger = ClientLogger(name)
 
     # ------------------------------------------------------------------------------------------------
     # Original FastPay client API (renamed methods remain intact)

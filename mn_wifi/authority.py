@@ -39,7 +39,7 @@ from mn_wifi.udp import UDPTransport
 from mn_wifi.wifiDirect import WiFiDirectTransport
 
 from mn_wifi.metrics import MetricsCollector
-
+from mn_wifi.authorityLogger import AuthorityLogger
 
 
 class WiFiAuthority(Station):
@@ -111,8 +111,7 @@ class WiFiAuthority(Station):
         self._sync_thread: Optional[threading.Thread] = None
         
         # Configure logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(f"WiFiAuthority-{name}")
+        self.logger = AuthorityLogger(name)
         
         # ------------------------------------------------------------------
         # Transport selection (default = TCP for backward-compatibility)
@@ -144,7 +143,7 @@ class WiFiAuthority(Station):
                     self.logger.error("Failed to connect transport")
                     return False
             except Exception as exc:  # pragma: no cover
-                self.logger.error("Transport connect error: %s", exc)
+                self.logger.error(f"Transport connect error: {exc}")
                 return False
 
         self._running = True
