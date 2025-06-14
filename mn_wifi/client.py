@@ -15,19 +15,15 @@ entire API surface of the Rust client, including confirmation orders, certificat
 persistent balance tracking.
 """
 
-import json
-import logging
-import socket
 import time
-import threading
-from dataclasses import dataclass, field
-from enum import Enum
-from queue import Queue, Empty
-from typing import Dict, Optional, Protocol, Union, List
+
+from queue import Queue
+from typing import Dict, Optional, List
 from uuid import UUID, uuid4
 
 from mn_wifi.baseTypes import (
     Address,
+    ClientState,
     NodeType,
     TransferOrder,
 )
@@ -47,26 +43,6 @@ from mn_wifi.clientLogger import ClientLogger
 # Type aliases for clarity -----------------------------------------------------------------------
 AuthorityName = str
 
-
-
-@dataclass
-class ClientState:
-    """Lightweight in-memory state for a FastPay client.
-
-    Only the fields required for initiating basic transfers are included at this stage.  The class
-    can be extended later with balance tracking, sequence numbers, certificates, and so on.
-    """
-
-    name: str
-    address: Address
-    sequence_number: int = 1
-    pending_transfers: Dict[UUID, TransferOrder] = field(default_factory=dict)
-
-    def next_sequence(self) -> int:
-        """Return the current sequence number *and* increment internal counter."""
-        seq = self.sequence_number
-        self.sequence_number += 1
-        return seq
 
 
 class Client(Station):
@@ -193,7 +169,7 @@ class Client(Station):
             msg = message
             msg.recipient = addr
             if not self.transport.send_message(msg, addr):
-                self.logger.warning("Failed to send to authority %s", name)
+                self.logger.warning(f"Failed to send to authority {name}")
                 continue
 
             # Wait (non-blocking) for immediate response — real FastPay is async, but to keep things
@@ -202,12 +178,12 @@ class Client(Station):
             resp = self._await_response(order.order_id, timeout=3.0)
             if resp and resp.success:
                 success += 1
-                self.logger.info("Authority %s accepted transfer", name)
+                self.logger.info(f"Authority {name} accepted transfer")
             else:
-                self.logger.warning("Authority %s rejected transfer", name)
+                self.logger.warning(f"Authority {name} rejected transfer")
 
             if success >= quorum_weight:
-                self.logger.info("Quorum reached (accepted by %d authorities)", success)
+                self.logger.info(f"Quorum reached (accepted by {success} authorities)")
                 # Clean pending transfer.
                 self.state.pending_transfers.pop(order.order_id, None)
                 return True

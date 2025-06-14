@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, Optional, Set
 from uuid import UUID, uuid4
-
+from dataclasses import dataclass, field
 
 class NodeType(Enum):
     """Type of node in the network."""
@@ -85,16 +84,59 @@ class ConfirmationOrder:
     status: TransactionStatus = TransactionStatus.PENDING
     
     def __post_init__(self) -> None:
-        """Initialize default values."""
+        """Initialise defaults and sanitise nested fields.
+
+        When deserialised from JSON, ``transfer_order`` may arrive as a plain
+        dictionary.  Here we convert it back to a :class:`TransferOrder` so
+        that attribute access (*transfer_order.sender* etc.) works reliably
+        across the code-base.
+        """
+
+        from uuid import UUID  # local import to avoid circularity
+
+        # Convert *transfer_order* to dataclass if needed ------------------
+        if isinstance(self.transfer_order, dict):
+            raw = self.transfer_order  # type: ignore[assignment]
+
+            # Ensure UUID typed field
+            if isinstance(raw.get("order_id"), str):
+                raw["order_id"] = UUID(raw["order_id"])
+
+            self.transfer_order = TransferOrder(**raw)  # type: ignore[assignment]
+
+        # Sanitise *order_id* ---------------------------------------------
+        if isinstance(self.order_id, str):  # when reconstructed poorly
+            self.order_id = UUID(self.order_id)
+
+        # Timestamp default ------------------------------------------------
         if self.timestamp == 0:
             self.timestamp = time.time()
 
+@dataclass
+class ClientState:
+    """Lightweight in-memory state for a FastPay client.
 
+    Only the fields required for initiating basic transfers are included at this stage.  The class
+    can be extended later with balance tracking, sequence numbers, certificates, and so on.
+    """
+
+    name: str
+    address: Address
+    sequence_number: int = 1
+    pending_transfers: Dict[UUID, TransferOrder] = field(default_factory=dict)
+
+    def next_sequence(self) -> int:
+        """Return the current sequence number *and* increment internal counter."""
+        seq = self.sequence_number
+        self.sequence_number += 1
+        return seq
+    
 @dataclass
 class AuthorityState:
     """State maintained by an authority node."""
     
     name: str
+    address: Address
     shard_assignments: Set[str]
     accounts: Dict[str, Account]
     pending_transfers: Dict[UUID, TransferOrder]

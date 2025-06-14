@@ -29,13 +29,20 @@ import time
 import uuid
 from typing import Dict, List, Optional, Tuple
 
-from mn_wifi.baseTypes import Address, NodeType, TransferOrder
+from mn_wifi.baseTypes import (
+    Address,
+    NodeType,
+    TransferOrder,
+    ConfirmationOrder,
+    TransactionStatus,
+)
 from mn_wifi.client import Client
 from mn_wifi.messages import (
     Message,
     MessageType,
     TransferRequestMessage,
     TransferResponseMessage,
+    ConfirmationRequestMessage,
 )
 from mn_wifi.transport import NetworkTransport
 from mn_wifi.node import Station
@@ -69,6 +76,9 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         self.clients_map: Dict[str, Client] = {c.name: c for c in clients}
         self._pending_orders: Dict[uuid.UUID, TransferOrder] = {}
         self._quorum_weight = int(len(authorities) * quorum_ratio) + 1
+        # Track which authorities accepted each order so that we can later
+        # broadcast a ConfirmationOrder containing their signatures.
+        self._order_signers: Dict[uuid.UUID, List[Station]] = {}
 
         # Bring client transports up so that they can receive replies.
         for client in clients:
@@ -189,10 +199,36 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         success = self._broadcast_order(sender_client, order)
         if success:
             print("✅ Quorum reached – transfer **accepted**")
-            # Remove from pending list once finalised
-            self._pending_orders.pop(order.order_id, None)
         else:
             print("❌ Quorum NOT reached – transfer remains pending")
+
+    # 0. ------------------------------------------------------------------
+    def cmd_infor(self, station: str) -> None:  # noqa: D401 – imperative form
+        """Show JSON-formatted ``state`` of *station*.
+
+        Usage within *fastpay_demo.py* interactive shell::
+
+            FastPay> infor auth1
+            FastPay> infor user2
+
+        The helper prints the pretty-printed representation of the object
+        referenced by ``<station>.state`` (if present).
+        """
+
+        node = self._find_node(station)
+        if node is None:
+            print(f"❌ Unknown station '{station}' – try 'ping' or 'balance' to list names")
+            return
+
+        if not hasattr(node, "state"):
+            print(f"⚠️  Node '{station}' has no 'state' attribute")
+            return
+
+        try:
+            state_dict = asdict(node.state)  # type: ignore[arg-type]
+            print(json.dumps(state_dict, indent=2, default=str))
+        except Exception:  # pragma: no cover – fallback when *state* is not a dataclass
+            print(str(node.state))
 
     # ------------------------------------------------------------------
     # Helper used by *broadcast*
@@ -202,6 +238,7 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         """Low-level implementation of the broadcast/collect pattern."""
         req = TransferRequestMessage(transfer_order=order)
         successes = 0
+        accepted_auths = []
         for auth in self.authorities:
             msg = Message(
                 message_id=uuid.uuid4(),
@@ -216,6 +253,7 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
                 resp = self._await_response(client, order.order_id, timeout=3.0)
                 if resp and resp.success:
                     successes += 1
+                    accepted_auths.append(auth)
                     print(f"   → {auth.name}: ✅ accepted")
                 else:
                     print(f"   → {auth.name}: ❌ rejected/time-out")
@@ -223,7 +261,20 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
                 print(f"   → {auth.name}: ❌ send-fail")
 
         print(f"🗳️  successes={successes}, quorum={self._quorum_weight}")
-        return successes >= self._quorum_weight
+        if successes >= self._quorum_weight:
+            # Persist signers for the follow-up confirmation broadcast.
+            self._order_signers[order.order_id] = accepted_auths.copy()
+
+            # Pretty-print the original order for user feedback.
+            print("\n📜 TransferOrder (quorum reached):")
+            print(json.dumps(asdict(order), indent=2, default=str))
+
+            # Automatically broadcast the confirmation order *now*?  We leave
+            # that decision to the user – they can invoke the dedicated
+            # command when convenient.
+            return True
+
+        return False
 
     def _await_response(
         self, client: Client, order_id: uuid.UUID, *, timeout: float
@@ -238,4 +289,83 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
                 and msg.payload.get("order_id") == str(order_id)
             ):
                 return TransferResponseMessage.from_payload(msg.payload)
-        return None 
+        return None
+
+    # --------------------------------------------------------------
+    # Public command – broadcast *ConfirmationOrder*
+    # --------------------------------------------------------------
+
+    def cmd_broadcast_confirmation(self, order_id_str: str) -> None:
+        """Broadcast a ConfirmationOrder that finalises the given *order_id*."""
+        try:
+            order_id = uuid.UUID(order_id_str)
+        except ValueError:
+            print("❌ order_id must be a valid UUID")
+            return
+
+        order = self._pending_orders.get(order_id)
+        if order is None:
+            print("❌ Unknown order_id – did you *broadcast* the transfer first?")
+            return
+
+        signers = self._order_signers.get(order_id)
+        if not signers:
+            print("❌ Quorum not yet reached for that order – cannot confirm")
+            return
+
+        sender_client = self.clients_map.get(order.sender)
+        if sender_client is None:
+            print(f"❌ Sender client '{order.sender}' not found")
+            return
+
+        self._broadcast_confirmation(sender_client, order, signers)
+        print("✅ ConfirmationOrder broadcast to authorities and recipient")
+        # Remove from pending list once finalised
+        self._pending_orders.pop(order.order_id, None)
+
+    # --------------------------------------------------------------
+    # Internal helper to broadcast confirmation orders
+    # --------------------------------------------------------------
+
+    def _broadcast_confirmation(
+        self,
+        client: Client,
+        order: TransferOrder,
+        signers: List[Station],
+    ) -> None:
+        """Create and broadcast a ConfirmationOrder (internal helper)."""
+        signatures = {auth.name: "signature_placeholder" for auth in signers}
+        confirmation = ConfirmationOrder(
+            order_id=order.order_id,
+            transfer_order=order,
+            authority_signatures=signatures,
+            timestamp=time.time(),
+            status=TransactionStatus.CONFIRMED,
+        )
+
+        req = ConfirmationRequestMessage(confirmation_order=confirmation)
+
+        # 1. Send to every authority so they finalise balances.
+        for auth in self.authorities:
+            msg = Message(
+                message_id=uuid.uuid4(),
+                message_type=MessageType.CONFIRMATION_REQUEST,
+                sender=client.address,
+                recipient=auth.address,
+                timestamp=time.time(),
+                payload=req.to_payload(),
+            )
+            client.transport.send_message(msg, auth.address)
+
+        # 2. Best-effort proof to the recipient.
+        recipient_cli = self.clients_map.get(order.recipient)
+        if recipient_cli:
+            proof_msg = Message(
+                message_id=uuid.uuid4(),
+                message_type=MessageType.CONFIRMATION_RESPONSE,
+                sender=client.address,
+                recipient=recipient_cli.address,
+                timestamp=time.time(),
+                payload=req.to_payload(),
+            )
+            client.transport.send_message(proof_msg, recipient_cli.address) 

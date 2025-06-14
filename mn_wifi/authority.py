@@ -83,9 +83,18 @@ class WiFiAuthority(Station):
         # Initialize the Station base class
         super().__init__(name, **default_params)
         
+        # Create address from mininet-wifi node information
+        self.address = Address(
+            node_id=name,
+            ip_address=ip.split('/')[0],
+            port=port,  
+            node_type=NodeType.AUTHORITY
+        )
+
         # FastPay specific attributes
         self.state = AuthorityState(
             name=name,
+            address=self.address,
             shard_assignments=shard_assignments or set(),
             accounts={},
             pending_transfers={},
@@ -94,13 +103,7 @@ class WiFiAuthority(Station):
             last_sync_time=time.time()
         )
         
-        # Create address from mininet-wifi node information
-        self.address = Address(
-            node_id=name,
-            ip_address=ip.split('/')[0],
-            port=port,  
-            node_type=NodeType.AUTHORITY
-        )
+
         
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
@@ -296,11 +299,6 @@ class WiFiAuthority(Station):
             # Add to pending transfers
             self.state.pending_transfers[transfer_order.order_id] = transfer_order
             
-            # Update sender balance temporarily
-            sender_account.balance -= transfer_order.amount
-            sender_account.sequence_number += 1
-            sender_account.last_update = time.time()
-            
             # Create recipient account if it doesn't exist
             if transfer_order.recipient not in self.state.accounts:
                 self.state.accounts[transfer_order.recipient] = Account(
@@ -309,11 +307,6 @@ class WiFiAuthority(Station):
                     sequence_number=0,
                     last_update=time.time()
                 )
-            
-            # Update recipient balance
-            recipient_account = self.state.accounts[transfer_order.recipient]
-            recipient_account.balance += transfer_order.amount
-            recipient_account.last_update = time.time()
             
             self.performance_metrics.record_transaction()
             
@@ -355,7 +348,45 @@ class WiFiAuthority(Station):
             
             # Update confirmation status
             confirmation_order.status = TransactionStatus.CONFIRMED
-            
+
+            # ------------------------------------------------------------------
+            # Apply final balance changes based on the confirmed transfer
+            # ------------------------------------------------------------------
+            # Update recipient balance
+            transfer = confirmation_order.transfer_order
+
+            sender = self.state.accounts.setdefault(
+                transfer.sender,
+                Account(
+                    address=transfer.sender,
+                    balance=0,
+                    sequence_number=0,
+                    last_update=time.time(),
+                ),
+            )
+            recipient = self.state.accounts.setdefault(
+                transfer.recipient,
+                Account(
+                    address=transfer.recipient,
+                    balance=0,
+                    sequence_number=0,
+                    last_update=time.time(),
+                ),
+            )
+
+            # Deduct / credit
+            sender.balance -= transfer.amount
+            sender.sequence_number += 1
+            sender.last_update = time.time()
+
+            recipient.balance += transfer.amount
+            recipient.last_update = time.time()
+            # ------------------------------------------------------------------
+
+            self.logger.info(
+                f"Confirmation {transfer.order_id} applied – sender={transfer.sender}, "
+                f"recipient={transfer.recipient}, amount={transfer.amount}"
+            )
             self.logger.info(f"Confirmation order {confirmation_order.order_id} processed")
             return True
             

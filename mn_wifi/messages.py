@@ -140,9 +140,13 @@ class ConfirmationRequestMessage:
     def from_payload(cls, payload: Dict[str, Any]) -> ConfirmationRequestMessage:
         """Create from message payload."""
         conf_data = payload['confirmation_order']
-        confirmation_order = ConfirmationOrder(**conf_data)
-        return cls(confirmation_order=confirmation_order)
 
+        if isinstance(conf_data.get('order_id'), str):
+            conf_data['order_id'] = UUID(conf_data['order_id'])
+        confirmation_order = ConfirmationOrder(**conf_data)
+        return cls(
+            confirmation_order=confirmation_order,
+        )
 
 @dataclass
 class SyncRequestMessage:

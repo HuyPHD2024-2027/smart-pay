@@ -221,7 +221,7 @@ if __name__ == '__main__':
             "payload": message.payload,
         }
 
-        json_blob = json.dumps(message_data)
+        json_blob = json.dumps(message_data, default=str)
 
         # ------------------------------------------------------------------
         # Build tiny Python client script (runs inside node namespace)
