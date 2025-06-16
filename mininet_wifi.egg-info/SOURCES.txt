@@ -62,6 +62,8 @@ mn_wifi/examples/authentication.py
 mn_wifi/examples/authority.py
 mn_wifi/examples/battery.py
 mn_wifi/examples/coherenceModel.py
+mn_wifi/examples/demoCommon.py
+mn_wifi/examples/demoWifiDirect.py
 mn_wifi/examples/fastpay_cli.py
 mn_wifi/examples/fastpay_demo.py
 mn_wifi/examples/forwardingBySSID.py

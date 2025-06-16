@@ -26,7 +26,6 @@ Once the network is up it hands control to the interactive *FastPay CLI* (see
 
 from __future__ import annotations
 
-import argparse
 import time
 from typing import List, Tuple
 
@@ -36,6 +35,7 @@ from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
 from mn_wifi.examples.fastpay_cli import FastPayCLI
 from mn_wifi.transport import TransportKind
+from mn_wifi.examples.demoCommon import parse_args as _parse_args, open_xterms as _open_xterms, close_xterms as _close_xterms
 
 # --------------------------------------------------------------------------------------
 # Network-building helpers
@@ -133,39 +133,6 @@ def _setup_demo_accounts(authorities: List[WiFiAuthority]) -> None:
 # --------------------------------------------------------------------------------------
 # Argument parsing & entry-point
 # --------------------------------------------------------------------------------------
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="FastPay Wi-Fi simple demo")
-    parser.add_argument("-a", "--authorities", type=int, default=3, help="number of authorities")
-    parser.add_argument(
-        "-l",
-        "--logs",
-        action="store_true",
-        help="open an xterm per authority and client and tail their logs",
-    )
-    return parser.parse_args()
-
-
-def _open_xterms(authorities: List[WiFiAuthority], clients: List[Client]) -> None:  # pragma: no cover
-    info("*** Opening xterms for authority and client logs\n")
-    for auth in authorities:
-        if hasattr(auth, "logger"):
-            auth.logger.start_xterm()  
-            info(f"   → xterm for {auth.name}\n")
-    for client in clients:
-        if hasattr(client, "logger"):
-            client.logger.start_xterm()
-            info(f"   → xterm for {client.name}\n")
-
-def _close_xterms(authorities: List[WiFiAuthority], clients: List[Client]) -> None:
-    """Close the xterm terminal."""
-    for auth in authorities:
-        if hasattr(auth, "logger"):
-            auth.logger.close_xterm()
-    for client in clients:
-        if hasattr(client, "logger"):
-            client.logger.close_xterm()
 
 def main() -> None:
     """Entry-point used by ``python -m mn_wifi.examples.fastpay_demo``."""
