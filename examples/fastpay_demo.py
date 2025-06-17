@@ -176,6 +176,7 @@ def main() -> None:
                 print("   balance <user>")
                 print("   infor <station>")
                 print("   power")
+                print("   performance <authority>")
                 print("   initiate <sender> <recipient> <amount>")
                 print("   sign <order-id> <sender>")
                 print("   broadcast order <order-id>")
@@ -193,6 +194,8 @@ def main() -> None:
                     cli.cmd_infor(parts[1])
                 elif cmd == "power" and len(parts) == 1:
                     cli.cmd_voting_power()
+                elif cmd == "performance" and len(parts) == 2:
+                    cli.cmd_performance(parts[1])
                 elif cmd == "initiate" and len(parts) == 4:
                     cli.cmd_initiate(parts[1], parts[2], int(parts[3]))
                 elif cmd == "sign" and len(parts) == 3:

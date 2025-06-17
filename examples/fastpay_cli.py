@@ -228,13 +228,6 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
             state_dict = asdict(node.state)  # type: ignore[arg-type]
             print(json.dumps(state_dict, indent=2, default=str))
 
-            # ------------------------------------------------------------------
-            # Also print performance metrics when the station exposes them
-            # ------------------------------------------------------------------
-            if hasattr(node, "get_performance_stats"):
-                metrics = node.get_performance_stats()  # type: ignore[attr-defined]
-                print("\n📈 Performance metrics:")
-                print(json.dumps(metrics, indent=2, default=str))
         except Exception:  # pragma: no cover – fallback when *state* is not a dataclass
             print(str(node.state))
 
@@ -282,6 +275,31 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         print("⚖️  Current voting power (weighted by performance):")
         for name, power in voting_power.items():
             print(f"   • {name}: {power:.3f}")
+
+    # ------------------------------------------------------------------
+    # New command – single authority performance stats
+    # ------------------------------------------------------------------
+
+    def cmd_performance(self, authority: str) -> None:  # noqa: D401 – imperative form
+        """Print *authority* performance metrics in JSON form.
+
+        Usage::
+
+            FastPay> performance auth1
+        """
+
+        # Locate authority --------------------------------------------------------
+        auth_node = next((a for a in self.authorities if a.name == authority), None)
+        if auth_node is None:
+            print(f"❌ Unknown authority '{authority}' – try 'power' to list names")
+            return
+
+        if not hasattr(auth_node, "get_performance_stats"):
+            print(f"⚠️  Authority '{authority}' does not expose performance metrics")
+            return
+
+        metrics = auth_node.get_performance_stats()  # type: ignore[attr-defined]
+        print(json.dumps(metrics, indent=2, default=str))
 
     # ------------------------------------------------------------------
     # Helper used by *broadcast*
