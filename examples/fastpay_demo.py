@@ -115,17 +115,19 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
 
 def _setup_demo_accounts(authorities: List[WiFiAuthority]) -> None:
     """Inject a handful of pre-funded user accounts into every authority."""
-    from mn_wifi.baseTypes import Account  # local import to avoid cycles
+    from mn_wifi.baseTypes import AccountOffchainState  # local import to avoid cycles
 
     demo_balances = {"user1": 1_000, "user2": 1_000}
 
     for auth in authorities:
         for user, bal in demo_balances.items():
-            auth.state.accounts[user] = Account(
+            auth.state.accounts[user] = AccountOffchainState(
                 address=user,
                 balance=bal,
                 sequence_number=0,
                 last_update=time.time(),
+                pending_confirmation=None,
+                confirmed_transfers=None,
             )
         auth.logger.info("Injected demo accounts") if hasattr(auth, "logger") else None
 
@@ -173,6 +175,7 @@ def main() -> None:
                 print("   ping <src> <dst>")
                 print("   balance <user>")
                 print("   infor <station>")
+                print("   power")
                 print("   initiate <sender> <recipient> <amount>")
                 print("   sign <order-id> <sender>")
                 print("   broadcast order <order-id>")
@@ -188,6 +191,8 @@ def main() -> None:
                     cli.cmd_balance(parts[1])
                 elif cmd == "infor" and len(parts) == 2:
                     cli.cmd_infor(parts[1])
+                elif cmd == "power" and len(parts) == 1:
+                    cli.cmd_voting_power()
                 elif cmd == "initiate" and len(parts) == 4:
                     cli.cmd_initiate(parts[1], parts[2], int(parts[3]))
                 elif cmd == "sign" and len(parts) == 3:

@@ -39,21 +39,6 @@ class Address:
 
 
 @dataclass
-class Account:
-    """Account state in the FastPay system."""
-    
-    address: str
-    balance: int
-    sequence_number: int
-    last_update: float
-    
-    def __post_init__(self) -> None:
-        """Initialize default values."""
-        if self.last_update == 0:
-            self.last_update = time.time()
-
-
-@dataclass
 class TransferOrder:
     """Transfer order from client to authority."""
     
@@ -72,6 +57,21 @@ class TransferOrder:
         if self.timestamp == 0:
             self.timestamp = time.time()
 
+@dataclass
+class SignedTransferOrder:
+    """Signed transfer order from client to authority."""
+    
+    order_id: UUID
+    transfer_order: TransferOrder
+    authority_signatures: Dict[str, str]
+    timestamp: float
+
+    def __post_init__(self) -> None:
+        """Initialize default values."""
+        if self.order_id is None:
+            self.order_id = uuid4()
+        if self.timestamp == 0:
+            self.timestamp = time.time()
 
 @dataclass
 class ConfirmationOrder:
@@ -131,6 +131,31 @@ class ClientState:
         self.sequence_number += 1
         return seq
     
+
+@dataclass
+class AccountOffchainState:
+    """Account state in the FastPay system."""
+    
+    address: str
+    balance: int
+    # Sequence number tracking spending actions.
+    sequence_number: int
+    last_update: float
+    # Whether we have signed a transfer for this sequence number already.
+    pending_confirmation: SignedTransferOrder
+    # All confirmed certificates as a sender.
+    confirmed_transfers: Dict[UUID, ConfirmationOrder] 
+    
+    def __post_init__(self) -> None:
+        """Initialize default values."""
+        if self.last_update == 0:
+            self.last_update = time.time()
+
+        # Ensure *confirmed_transfers* is always a dict for ease of use.
+        if self.confirmed_transfers is None:
+            self.confirmed_transfers = {}
+
+
 @dataclass
 class AuthorityState:
     """State maintained by an authority node."""
@@ -138,9 +163,7 @@ class AuthorityState:
     name: str
     address: Address
     shard_assignments: Set[str]
-    accounts: Dict[str, Account]
-    pending_transfers: Dict[UUID, TransferOrder]
-    confirmed_transfers: Dict[UUID, ConfirmationOrder]
+    accounts: Dict[str, AccountOffchainState]
     committee_members: Set[str]
     last_sync_time: float
     

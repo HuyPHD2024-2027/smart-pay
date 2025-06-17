@@ -13,10 +13,11 @@ from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
 
 from mn_wifi.baseTypes import (
-    Account,
+    AccountOffchainState,
     Address,
     AuthorityState,
     ConfirmationOrder,
+    SignedTransferOrder,
     NetworkMetrics,
     NodeType,
     TransactionStatus,
@@ -97,8 +98,6 @@ class WiFiAuthority(Station):
             address=self.address,
             shard_assignments=shard_assignments or set(),
             accounts={},
-            pending_transfers={},
-            confirmed_transfers={},
             committee_members=committee_members,
             last_sync_time=time.time()
         )
@@ -297,15 +296,27 @@ class WiFiAuthority(Station):
                 )
             
             # Add to pending transfers
-            self.state.pending_transfers[transfer_order.order_id] = transfer_order
+            self.state.accounts[transfer_order.sender].pending_confirmation = SignedTransferOrder(
+                order_id=transfer_order.order_id,
+                transfer_order=transfer_order,
+                authority_signatures={self.name: "signed_by_authority"},
+                timestamp=time.time()
+            )
             
             # Create recipient account if it doesn't exist
             if transfer_order.recipient not in self.state.accounts:
-                self.state.accounts[transfer_order.recipient] = Account(
+                self.state.accounts[transfer_order.recipient] = AccountOffchainState(
                     address=transfer_order.recipient,
                     balance=0,
                     sequence_number=0,
-                    last_update=time.time()
+                    last_update=time.time(),
+                    pending_confirmation=SignedTransferOrder(
+                        order_id=transfer_order.order_id,
+                        transfer_order=transfer_order,
+                        authority_signatures={self.name: "signed_by_authority"},
+                        timestamp=time.time()
+                    ),
+                    confirmed_transfers={},
                 )
             
             self.performance_metrics.record_transaction()
@@ -317,7 +328,6 @@ class WiFiAuthority(Station):
             return TransferResponseMessage(
                 order_id=transfer_order.order_id,
                 success=True,
-                new_balance=sender_account.balance
             )
             
         except Exception as e:
@@ -339,12 +349,21 @@ class WiFiAuthority(Station):
             True if handled successfully, False otherwise
         """
         try:
-            # Store confirmation order
-            self.state.confirmed_transfers[confirmation_order.order_id] = confirmation_order
+            # Check if the confirmation order is valid
+            if not self._validate_confirmation_order(confirmation_order):
+                return False
             
-            # Remove from pending if exists
-            if confirmation_order.order_id in self.state.pending_transfers:
-                del self.state.pending_transfers[confirmation_order.order_id]
+            # Store confirmation order
+            account = self.state.accounts[confirmation_order.transfer_order.sender]
+
+            account.confirmed_transfers[confirmation_order.order_id] = confirmation_order
+
+            # Remove from pending if matches
+            if (
+                account.pending_confirmation
+                and account.pending_confirmation.order_id == confirmation_order.order_id
+            ):
+                account.pending_confirmation = None
             
             # Update confirmation status
             confirmation_order.status = TransactionStatus.CONFIRMED
@@ -357,20 +376,24 @@ class WiFiAuthority(Station):
 
             sender = self.state.accounts.setdefault(
                 transfer.sender,
-                Account(
+                AccountOffchainState(
                     address=transfer.sender,
                     balance=0,
                     sequence_number=0,
                     last_update=time.time(),
+                    pending_confirmation=None,
+                    confirmed_transfers={},
                 ),
             )
             recipient = self.state.accounts.setdefault(
                 transfer.recipient,
-                Account(
+                AccountOffchainState(
                     address=transfer.recipient,
                     balance=0,
                     sequence_number=0,
                     last_update=time.time(),
+                    pending_confirmation=None,
+                    confirmed_transfers={},
                 ),
             )
 
@@ -517,6 +540,35 @@ class WiFiAuthority(Station):
         if sender_account and transfer_order.sequence_number <= sender_account.sequence_number:
             return False
         
+        return True
+    
+    def _validate_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
+        """Validate a confirmation order.
+        
+        Args:
+            confirmation_order: Confirmation order to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        # Check if the confirmation order is valid
+        if not self._validate_transfer_order(confirmation_order.transfer_order):
+            return False        
+        
+        account = self.state.accounts.get(confirmation_order.transfer_order.sender)
+
+        # Check if already confirmed
+        if (
+            account
+            and account.confirmed_transfers
+            and confirmation_order.order_id in account.confirmed_transfers
+        ):
+            return False
+
+        # Check the signature of the confirmation order
+        if not confirmation_order.authority_signatures:
+            return False
+
         return True
     
     def _initiate_confirmation(self, transfer_order: TransferOrder) -> None:

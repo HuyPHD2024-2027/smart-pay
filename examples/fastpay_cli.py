@@ -204,7 +204,7 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
 
     # 0. ------------------------------------------------------------------
     def cmd_infor(self, station: str) -> None:  # noqa: D401 – imperative form
-        """Show JSON-formatted ``state`` of *station*.
+        """Show JSON-formatted ``state`` of *station* **and** optional performance metrics.
 
         Usage within *fastpay_demo.py* interactive shell::
 
@@ -227,8 +227,61 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         try:
             state_dict = asdict(node.state)  # type: ignore[arg-type]
             print(json.dumps(state_dict, indent=2, default=str))
+
+            # ------------------------------------------------------------------
+            # Also print performance metrics when the station exposes them
+            # ------------------------------------------------------------------
+            if hasattr(node, "get_performance_stats"):
+                metrics = node.get_performance_stats()  # type: ignore[attr-defined]
+                print("\n📈 Performance metrics:")
+                print(json.dumps(metrics, indent=2, default=str))
         except Exception:  # pragma: no cover – fallback when *state* is not a dataclass
             print(str(node.state))
+
+    # ------------------------------------------------------------------
+    # New command – voting power
+    # ------------------------------------------------------------------
+
+    def cmd_voting_power(self) -> None:
+        """Display the *current* voting power of every authority.
+
+        The helper derives a **relative weight** for each authority based on
+        its on-chain/off-chain performance.  The reference implementation uses
+        the following simplified scoring function::
+
+            score = max(transaction_count - error_count, 0)
+
+        The final *voting power* is the normalised score so that the sum across
+        all authorities equals **1.0**.  When all scores are zero (e.g. right
+        after network boot-strap) the helper falls back to an *equal weight*
+        distribution.
+        """
+
+        # Gather raw statistics --------------------------------------------------
+        scores: Dict[str, int] = {}
+        for auth in self.authorities:
+            if hasattr(auth, "get_performance_stats"):
+                stats = auth.get_performance_stats()  # type: ignore[attr-defined]
+                score = max(int(stats.get("transaction_count", 0)) - int(stats.get("error_count", 0)), 0)
+            else:
+                score = 0
+            scores[auth.name] = score
+
+        total = sum(scores.values())
+
+        # Derive voting power (normalised) ---------------------------------------
+        voting_power: Dict[str, float] = {}
+        if total == 0:
+            # All zeros → equal distribution
+            equal = 1.0 / len(self.authorities) if self.authorities else 0.0
+            voting_power = {name: equal for name in scores}
+        else:
+            voting_power = {name: round(score / total, 3) for name, score in scores.items()}
+
+        # Pretty-print result ------------------------------------------------------
+        print("⚖️  Current voting power (weighted by performance):")
+        for name, power in voting_power.items():
+            print(f"   • {name}: {power:.3f}")
 
     # ------------------------------------------------------------------
     # Helper used by *broadcast*

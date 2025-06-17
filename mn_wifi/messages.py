@@ -102,7 +102,6 @@ class TransferResponseMessage:
     order_id: UUID
     success: bool
     error_message: Optional[str] = None
-    new_balance: Optional[int] = None
     
     def to_payload(self) -> Dict[str, Any]:
         """Convert to message payload."""
@@ -110,7 +109,6 @@ class TransferResponseMessage:
             'order_id': str(self.order_id),
             'success': self.success,
             'error_message': self.error_message,
-            'new_balance': self.new_balance
         }
     
     @classmethod
@@ -120,7 +118,6 @@ class TransferResponseMessage:
             order_id=UUID(payload['order_id']),
             success=payload['success'],
             error_message=payload.get('error_message'),
-            new_balance=payload.get('new_balance')
         )
 
 
