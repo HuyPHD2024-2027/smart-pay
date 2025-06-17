@@ -537,7 +537,7 @@ class WiFiAuthority(Station):
         
         # Check sequence number
         sender_account = self.state.accounts.get(transfer_order.sender)
-        if sender_account and transfer_order.sequence_number <= sender_account.sequence_number:
+        if sender_account and transfer_order.sequence_number < sender_account.sequence_number:
             return False
         
         return True

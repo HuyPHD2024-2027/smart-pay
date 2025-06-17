@@ -39,10 +39,7 @@ from mn_wifi.tcp import TCPTransport
 from mn_wifi.udp import UDPTransport
 from mn_wifi.wifiDirect import WiFiDirectTransport
 from mn_wifi.clientLogger import ClientLogger
-
-# Type aliases for clarity -----------------------------------------------------------------------
-AuthorityName = str
-
+from mn_wifi.baseTypes import KeyPair, AuthorityName
 
 
 class Client(Station):
@@ -100,7 +97,8 @@ class Client(Station):
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
 
-        self.state = ClientState(name=name, address=self.address)
+        # Initialise client state with zero balance and a placeholder secret key.
+        self.state = ClientState(name=name, address=self.address, balance=0, secret=KeyPair("secret-placeholder"))
 
         # Transport factory ------------------------------------------------------------------
         if transport is not None:
@@ -183,6 +181,7 @@ class Client(Station):
                 self.logger.warning(f"Authority {name} rejected transfer")
 
             if success >= quorum_weight:
+                self.state.balance -= amount
                 self.logger.info(f"Quorum reached (accepted by {success} authorities)")
                 # Clean pending transfer.
                 self.state.pending_transfers.pop(order.order_id, None)

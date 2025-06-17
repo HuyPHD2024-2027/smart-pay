@@ -17,6 +17,7 @@ mn_wifi/clean.py
 mn_wifi/cli.py
 mn_wifi/client.py
 mn_wifi/clientLogger.py
+mn_wifi/committee.py
 mn_wifi/devices.py
 mn_wifi/energy.py
 mn_wifi/frequency.py

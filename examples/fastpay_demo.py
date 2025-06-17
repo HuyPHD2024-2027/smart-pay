@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Light-weight FastPay Wi-Fi demo using :class:`mn_wifi.authority.WiFiAuthority`.
+"""Light-weight Resillient Ejara Offline Payment System (REPOS) Wi-Fi demo using :class:`mn_wifi.authority.WiFiAuthority`.
 
 Run with *root* privileges because *Mininet-WiFi* requires network
 namespace manipulation::
@@ -36,7 +36,7 @@ from mn_wifi.client import Client
 from mn_wifi.examples.fastpay_cli import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.examples.demoCommon import parse_args as _parse_args, open_xterms as _open_xterms, close_xterms as _close_xterms
-
+from mn_wifi.baseTypes import KeyPair
 # --------------------------------------------------------------------------------------
 # Network-building helpers
 # --------------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
         ip="10.0.0.3/8",
         position="60,30,0",
     )
-
+    clients = [user1, user2]
     # Authorities -------------------------------------------------------------------
     authorities: List[WiFiAuthority] = []
     committee = {f"auth{i}" for i in range(1, num_auth + 1)}
@@ -108,15 +108,15 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
         auth.start_fastpay_services()
 
     # Create demo accounts so that *balance* and transfers work out-of-the-box
-    _setup_demo_accounts(authorities)
+    _setup_demo_accounts(clients, authorities)
 
-    return net, authorities, [user1, user2]
+    return net, authorities, clients
 
 
-def _setup_demo_accounts(authorities: List[WiFiAuthority]) -> None:
+def _setup_demo_accounts(clients: List[Client], authorities: List[WiFiAuthority]) -> None:
     """Inject a handful of pre-funded user accounts into every authority."""
-    from mn_wifi.baseTypes import AccountOffchainState  # local import to avoid cycles
-
+    from mn_wifi.baseTypes import AccountOffchainState, SignedTransferOrder   # local import to avoid cycles
+    from uuid import uuid4
     demo_balances = {"user1": 1_000, "user2": 1_000}
 
     for auth in authorities:
@@ -126,10 +126,23 @@ def _setup_demo_accounts(authorities: List[WiFiAuthority]) -> None:
                 balance=bal,
                 sequence_number=0,
                 last_update=time.time(),
-                pending_confirmation=None,
-                confirmed_transfers=None,
+                pending_confirmation=SignedTransferOrder(
+                    order_id=uuid4(),
+                    transfer_order=None,
+                    authority_signatures={},
+                    timestamp=time.time()
+                ),
+                confirmed_transfers={},
             )
-        auth.logger.info("Injected demo accounts") if hasattr(auth, "logger") else None
+    for client in clients:
+        client.state.balance = 1000
+        client.state.secret = KeyPair("secret-placeholder")
+        client.state.sequence_number = 0
+        client.state.last_update = time.time()
+        client.state.pending_confirmation = None
+        client.state.confirmed_transfers = {}
+        
+    client.logger.info("Injected demo accounts") if hasattr(client, "logger") else None
 
 
 # --------------------------------------------------------------------------------------
@@ -142,7 +155,7 @@ def main() -> None:
     opts = _parse_args()
     setLogLevel("info")
 
-    info("🚀 FastPay Wi-Fi demo (authorities=%d)\n" % opts.authorities)
+    info("🚀 Resillient Ejara Offline Payment System (REPOS) Wi-Fi demo (authorities=%d)\n" % opts.authorities)
 
     net = None
     try:

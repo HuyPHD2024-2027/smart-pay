@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import time
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, NewType
 from uuid import UUID, uuid4
 from dataclasses import dataclass, field
+
+
+KeyPair = NewType("KeyPair", str)
+AuthorityName = str
+ClientAddress = str
+MessagePayload = Dict[str, Any] 
 
 class NodeType(Enum):
     """Type of node in the network."""
@@ -122,6 +128,8 @@ class ClientState:
 
     name: str
     address: Address
+    balance: int = 0
+    secret: KeyPair = KeyPair("")
     sequence_number: int = 1
     pending_transfers: Dict[UUID, TransferOrder] = field(default_factory=dict)
 
@@ -188,7 +196,3 @@ class NetworkMetrics:
         if self.last_update == 0:
             self.last_update = time.time()
 
-
-AuthorityName = str
-ClientAddress = str
-MessagePayload = Dict[str, Any] 
