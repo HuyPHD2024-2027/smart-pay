@@ -21,12 +21,12 @@ class ClientLogger:
         
         # Color mapping for different authorities
         self.colors = {
-            'auth1': '\033[94m',    # Blue
-            'auth2': '\033[92m',    # Green  
-            'auth3': '\033[93m',    # Yellow
-            'auth4': '\033[95m',    # Magenta
-            'auth5': '\033[96m',    # Cyan
-            'auth6': '\033[91m',    # Red
+            'user1': '\033[94m',    # Blue
+            'user2': '\033[92m',    # Green  
+            'user3': '\033[93m',    # Yellow
+            'user4': '\033[95m',    # Magenta
+            'user5': '\033[96m',    # Cyan
+            'user6': '\033[91m',    # Red
         }
         self.reset_color = '\033[0m'
         
