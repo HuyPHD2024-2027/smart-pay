@@ -272,7 +272,7 @@ if __name__ == '__main__':
                 return True
 
             self.node.logger.warning(
-                "In-namespace send failed: %s", output or "<no output>")
+                f"In-namespace send failed: {output or '<no output>'}")
             return False
         except Exception as exc:  # pragma: no cover
             self.node.logger.error(f"Failed to send message in namespace: {exc}")
