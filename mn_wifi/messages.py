@@ -99,25 +99,28 @@ class TransferRequestMessage:
 class TransferResponseMessage:
     """Message for responding to a transfer request."""
     
-    order_id: UUID
+    transfer_order: TransferOrder
     success: bool
     error_message: Optional[str] = None
+    authority_signature: Optional[str] = None
     
     def to_payload(self) -> Dict[str, Any]:
         """Convert to message payload."""
         return {
-            'order_id': str(self.order_id),
+            'transfer_order': asdict(self.transfer_order),
             'success': self.success,
             'error_message': self.error_message,
+            'authority_signature': self.authority_signature
         }
     
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> TransferResponseMessage:
         """Create from message payload."""
         return cls(
-            order_id=UUID(payload['order_id']),
+            transfer_order=TransferOrder(**payload['transfer_order']),
             success=payload['success'],
             error_message=payload.get('error_message'),
+            authority_signature=payload.get('authority_signature')
         )
 
 

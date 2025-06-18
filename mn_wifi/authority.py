@@ -99,10 +99,9 @@ class WiFiAuthority(Station):
             shard_assignments=shard_assignments or set(),
             accounts={},
             committee_members=committee_members,
-            last_sync_time=time.time()
+            last_sync_time=time.time(),
+            authority_signature=f"signed_by_authority_{name}"
         )
-        
-
         
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
@@ -274,32 +273,35 @@ class WiFiAuthority(Station):
             # Validate transfer order
             if not self._validate_transfer_order(transfer_order):
                 return TransferResponseMessage(
-                    order_id=transfer_order.order_id,
+                    transfer_order=transfer_order,
                     success=False,
-                    error_message="Invalid transfer order"
+                    error_message="Invalid transfer order",
+                    authority_signature=self.state.authority_signature
                 )
             
             # Check if sender account exists and has sufficient balance
             sender_account = self.state.accounts.get(transfer_order.sender)
             if not sender_account:
                 return TransferResponseMessage(
-                    order_id=transfer_order.order_id,
+                    transfer_order=transfer_order,
                     success=False,
-                    error_message="Sender account not found"
+                    error_message="Sender account not found",
+                    authority_signature=self.state.authority_signature
                 )
             
             if sender_account.balance < transfer_order.amount:
                 return TransferResponseMessage(
-                    order_id=transfer_order.order_id,
+                    transfer_order=transfer_order,
                     success=False,
-                    error_message="Insufficient balance"
+                    error_message="Insufficient balance",
+                    authority_signature=self.state.authority_signature
                 )
             
             # Add to pending transfers
             self.state.accounts[transfer_order.sender].pending_confirmation = SignedTransferOrder(
                 order_id=transfer_order.order_id,
                 transfer_order=transfer_order,
-                authority_signatures={self.name: "signed_by_authority"},
+                authority_signature=self.state.authority_signature,
                 timestamp=time.time()
             )
             
@@ -313,7 +315,7 @@ class WiFiAuthority(Station):
                     pending_confirmation=SignedTransferOrder(
                         order_id=transfer_order.order_id,
                         transfer_order=transfer_order,
-                        authority_signatures={self.name: "signed_by_authority"},
+                        authority_signature={self.name: self.state.authority_signature},
                         timestamp=time.time()
                     ),
                     confirmed_transfers={},
@@ -322,19 +324,21 @@ class WiFiAuthority(Station):
             self.performance_metrics.record_transaction()
             
             # Initiate committee confirmation if needed
-            if len(self.state.committee_members) > 1:
-                self._initiate_confirmation(transfer_order)
+            # if len(self.state.committee_members) > 1:
+            #     self._initiate_confirmation(transfer_order)
             
             return TransferResponseMessage(
-                order_id=transfer_order.order_id,
+                transfer_order=transfer_order,
                 success=True,
+                authority_signature=self.state.authority_signature,
+                error_message=None
             )
             
         except Exception as e:
             self.logger.error(f"Error handling transfer order: {e}")
             self.performance_metrics.record_error()
             return TransferResponseMessage(
-                order_id=transfer_order.order_id,
+                transfer_order=transfer_order,
                 success=False,
                 error_message=f"Internal error: {str(e)}"
             )

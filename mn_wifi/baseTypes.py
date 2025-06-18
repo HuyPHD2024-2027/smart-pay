@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from enum import Enum
-from typing import Any, Dict, Optional, Set, NewType
+from typing import Any, Dict, Optional, Set, NewType, List, Tuple
 from uuid import UUID, uuid4
 from dataclasses import dataclass, field
 
@@ -65,11 +65,11 @@ class TransferOrder:
 
 @dataclass
 class SignedTransferOrder:
-    """Signed transfer order from client to authority."""
+    """Signed transfer order from authority to client."""
     
     order_id: UUID
     transfer_order: TransferOrder
-    authority_signatures: Dict[str, str]
+    authority_signature: Dict[AuthorityName, str]
     timestamp: float
 
     def __post_init__(self) -> None:
@@ -85,7 +85,7 @@ class ConfirmationOrder:
     
     order_id: UUID
     transfer_order: TransferOrder
-    authority_signatures: Dict[str, str]
+    authority_signatures: List[str]
     timestamp: float
     status: TransactionStatus = TransactionStatus.PENDING
     
@@ -128,10 +128,20 @@ class ClientState:
 
     name: str
     address: Address
-    balance: int = 0
     secret: KeyPair = KeyPair("")
     sequence_number: int = 1
-    pending_transfers: Dict[UUID, TransferOrder] = field(default_factory=dict)
+    committee: List["AuthorityState"] = field(default_factory=list)
+    # Pending transfer (None when idle).
+    pending_transfer: Optional[TransferOrder] = None
+    # Transfer certificates that we have created ("sent").
+    # Normally, `sent_certificates` should contain one certificate for each index in `0..next_sequence_number`.
+    sent_certificates: List[SignedTransferOrder] = field(default_factory=list)
+    # Known received certificates, indexed by sender and sequence number.
+    # TODO: API to search and download yet unknown `received_certificates`.
+    received_certificates: Dict[Tuple[str, int], SignedTransferOrder] = field(default_factory=dict)
+    # The known spendable balance (including a possible initial funding, excluding unknown sent
+    # or received certificates).
+    balance: int = 0
 
     def next_sequence(self) -> int:
         """Return the current sequence number *and* increment internal counter."""
@@ -173,7 +183,8 @@ class AuthorityState:
     shard_assignments: Set[str]
     accounts: Dict[str, AccountOffchainState]
     committee_members: Set[str]
-    last_sync_time: float
+    authority_signature: Optional[str] = None
+    last_sync_time: float = 0.0
     
     def __post_init__(self) -> None:
         """Initialize default values."""

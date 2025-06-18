@@ -107,6 +107,10 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
     for auth in authorities:
         auth.start_fastpay_services()
 
+    # Start FastPay services on clients
+    for client in clients:
+        client.start_fastpay_services()
+
     # Create demo accounts so that *balance* and transfers work out-of-the-box
     _setup_demo_accounts(clients, authorities)
 
@@ -129,19 +133,20 @@ def _setup_demo_accounts(clients: List[Client], authorities: List[WiFiAuthority]
                 pending_confirmation=SignedTransferOrder(
                     order_id=uuid4(),
                     transfer_order=None,
-                    authority_signatures={},
-                    timestamp=time.time()
+                    authority_signature={},
+                    timestamp=time.time()   
                 ),
                 confirmed_transfers={},
             )
     for client in clients:
-        client.state.balance = 1000
         client.state.secret = KeyPair("secret-placeholder")
+        client.state.committee = authorities
+        client.state.pending_transfer = None
+        client.state.sent_certificates = []
+        client.state.received_certificates = {}
+        client.state.balance = demo_balances[client.state.name]
         client.state.sequence_number = 0
-        client.state.last_update = time.time()
-        client.state.pending_confirmation = None
-        client.state.confirmed_transfers = {}
-        
+
     client.logger.info("Injected demo accounts") if hasattr(client, "logger") else None
 
 
@@ -187,13 +192,11 @@ def main() -> None:
                 print("Available commands:")
                 print("   ping <src> <dst>")
                 print("   balance <user>")
-                print("   infor <station>")
+                print("   infor <station|all>")
                 print("   power")
                 print("   performance <authority>")
-                print("   initiate <sender> <recipient> <amount>")
-                print("   sign <order-id> <sender>")
-                print("   broadcast order <order-id>")
-                print("   broadcast confirmation <order-id>")
+                print("   transfer <sender> <recipient> <amount>")
+                print("   <sender> broadcast confirmation")
                 print("   quit / exit")
                 continue
 
@@ -209,14 +212,10 @@ def main() -> None:
                     cli.cmd_voting_power()
                 elif cmd == "performance" and len(parts) == 2:
                     cli.cmd_performance(parts[1])
-                elif cmd == "initiate" and len(parts) == 4:
-                    cli.cmd_initiate(parts[1], parts[2], int(parts[3]))
-                elif cmd == "sign" and len(parts) == 3:
-                    cli.cmd_sign(parts[1], parts[2])
-                elif len(parts) == 3 and parts[1] == "order":
-                    cli.cmd_broadcast(parts[2])
-                elif len(parts) == 3 and parts[1] == "confirmation":
-                    cli.cmd_broadcast_confirmation(parts[2])
+                elif cmd == "transfer" and len(parts) == 4:
+                    cli.cmd_transfer(parts[1], parts[2], int(parts[3]))
+                elif len(parts) == 3 and parts[2] == "confirmation":
+                    cli.cmd_broadcast_confirmation(parts[0])
                 else:
                     print("❓ Unknown / malformed command – type 'help'")
             except Exception as exc:  # pragma: no cover

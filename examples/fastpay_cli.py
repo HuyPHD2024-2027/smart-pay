@@ -30,8 +30,6 @@ import uuid
 from typing import Dict, List, Optional, Tuple
 
 from mn_wifi.baseTypes import (
-    Address,
-    NodeType,
     TransferOrder,
     ConfirmationOrder,
     TransactionStatus,
@@ -40,8 +38,6 @@ from mn_wifi.client import Client
 from mn_wifi.messages import (
     Message,
     MessageType,
-    TransferRequestMessage,
-    TransferResponseMessage,
     ConfirmationRequestMessage,
 )
 from mn_wifi.transport import NetworkTransport
@@ -135,72 +131,23 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         print(f"💰 {user}: {balances[0] if all_equal else balances} {symbol}")
 
     # 3. ------------------------------------------------------------------
-    def cmd_initiate(self, sender: str, recipient: str, amount: int) -> None:
-        """Create (but *not* send) a :class:`TransferOrder`."""
+    def cmd_transfer(self, sender: str, recipient: str, amount: int) -> None:
+        """Broadcast a transfer order using :pymeth:`mn_wifi.client.Client.transfer`."""
+
         client = self.clients_map.get(sender)
         if client is None:
             print(f"❌ Unknown client '{sender}'")
             return
 
-        order = TransferOrder(
-            order_id=uuid.uuid4(),
-            sender=sender,
-            recipient=recipient,
-            amount=amount,
-            sequence_number=client.state.next_sequence(),
-            timestamp=time.time(),
-            signature=None,
-        )
-        self._pending_orders[order.order_id] = order
-        print(f"📝 Initiated transfer – order_id={order.order_id}")
-
-    # 4. ------------------------------------------------------------------
-    def cmd_sign(self, order_id_str: str, user: str) -> None:
-        """Attach a *dummy* signature to the pending *order_id*."""
+        print(f"🚀 {sender} → {recipient}  amount={amount}")
         try:
-            order_id = uuid.UUID(order_id_str)
-        except ValueError:
-            print("❌ order_id must be a valid UUID")
-            return
-
-        order = self._pending_orders.get(order_id)
-        if order is None:
-            print("❌ Unknown order_id – did you *initiate* first?")
-            return
-        if order.sender != user:
-            print("❌ Only the *sender* can sign the order")
-            return
-
-        order.signature = f"signed-by-{user}"  # placeholder
-        print(f"✒️  Order {order_id} signed by {user}")
-
-    # 5. ------------------------------------------------------------------
-    def cmd_broadcast(self, order_id_str: str) -> None:
-        """Send the signed order to *all* authorities and await responses."""
-        try:
-            order_id = uuid.UUID(order_id_str)
-        except ValueError:
-            print("❌ order_id must be a valid UUID")
-            return
-
-        order = self._pending_orders.get(order_id)
-        if order is None:
-            print("❌ Unknown order_id – did you *initiate* first?")
-            return
-        if not order.signature:
-            print("❌ Order is not signed – use 'sign' first")
-            return
-
-        sender_client = self.clients_map.get(order.sender)
-        if sender_client is None:
-            print(f"❌ Sender client '{order.sender}' not found")
-            return
-
-        success = self._broadcast_order(sender_client, order)
-        if success:
-            print("✅ Quorum reached – transfer **accepted**")
-        else:
-            print("❌ Quorum NOT reached – transfer remains pending")
+            success = client.transfer(recipient, amount)
+            if success:
+                print("✅ Transfer request broadcast to authorities – awaiting quorum")
+            else:
+                print("❌ Failed to broadcast transfer request (no authority reachable)")
+        except Exception as exc:  # pragma: no cover – defensive, should not occur
+            print(f"❌ Transfer failed: {exc}")
 
     # 0. ------------------------------------------------------------------
     def cmd_infor(self, station: str) -> None:  # noqa: D401 – imperative form
@@ -210,11 +157,24 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
 
             FastPay> infor auth1
             FastPay> infor user2
+            FastPay> infor all            # show every authority
 
-        The helper prints the pretty-printed representation of the object
-        referenced by ``<station>.state`` (if present).
+        Passing *all*, *authorities* or ``*`` will display the information for **every**
+        authority node in the committee sequentially.
         """
 
+        # ------------------------------------------------------------------
+        # Special-case: *all* / *authorities* / "*"  → iterate over committee.
+        # ------------------------------------------------------------------
+        if station.lower() in {"all", "authorities", "*"}:
+            for auth in self.authorities:
+                print("\n===", auth.name, "===")
+                self.cmd_infor(auth.name)
+            return
+
+        # ------------------------------------------------------------------
+        # Single station lookup (authority or client) -----------------------
+        # ------------------------------------------------------------------
         node = self._find_node(station)
         if node is None:
             print(f"❌ Unknown station '{station}' – try 'ping' or 'balance' to list names")
@@ -226,7 +186,10 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
 
         try:
             state_dict = asdict(node.state)  # type: ignore[arg-type]
-            print(json.dumps(state_dict, indent=2, default=str))
+
+            full_info = {"state": state_dict}
+
+            print(json.dumps(full_info, indent=2, default=str))
 
         except Exception:  # pragma: no cover – fallback when *state* is not a dataclass
             print(str(node.state))
@@ -301,142 +264,16 @@ class FastPayCLI:  # pylint: disable=too-many-instance-attributes
         metrics = auth_node.get_performance_stats()  # type: ignore[attr-defined]
         print(json.dumps(metrics, indent=2, default=str))
 
-    # ------------------------------------------------------------------
-    # Helper used by *broadcast*
-    # ------------------------------------------------------------------
 
-    def _broadcast_order(self, client: Client, order: TransferOrder) -> bool:
-        """Low-level implementation of the broadcast/collect pattern."""
-        req = TransferRequestMessage(transfer_order=order)
-        successes = 0
-        accepted_auths = []
-        for auth in self.authorities:
-            msg = Message(
-                message_id=uuid.uuid4(),
-                message_type=MessageType.TRANSFER_REQUEST,
-                sender=client.address,
-                recipient=auth.address,
-                timestamp=time.time(),
-                payload=req.to_payload(),
-            )
-            if client.transport.send_message(msg, auth.address):
-                # Naïve wait for immediate response (max 3 s)
-                resp = self._await_response(client, order.order_id, timeout=3.0)
-                if resp and resp.success:
-                    successes += 1
-                    accepted_auths.append(auth)
-                    print(f"   → {auth.name}: ✅ accepted")
-                else:
-                    print(f"   → {auth.name}: ❌ rejected/time-out")
-            else:
-                print(f"   → {auth.name}: ❌ send-fail")
+    def cmd_broadcast_confirmation(self, sender: str) -> None:
+        """Broadcast a transfer order using :pymeth:`mn_wifi.client.Client.transfer`."""
+        client = self.clients_map.get(sender)
+        if client is None:
+            print(f"❌ Unknown client '{sender}'")
+            return
 
-        print(f"🗳️  successes={successes}, quorum={self._quorum_weight}")
-        if successes >= self._quorum_weight:
-            # Persist signers for the follow-up confirmation broadcast.
-            self._order_signers[order.order_id] = accepted_auths.copy()
-
-            # Pretty-print the original order for user feedback.
-            print("\n📜 TransferOrder (quorum reached):")
-            print(json.dumps(asdict(order), indent=2, default=str))
-
-            # Automatically broadcast the confirmation order *now*?  We leave
-            # that decision to the user – they can invoke the dedicated
-            # command when convenient.
-            return True
-
-        return False
-
-    def _await_response(
-        self, client: Client, order_id: uuid.UUID, *, timeout: float
-    ) -> Optional[TransferResponseMessage]:
-        """Wait (blocking) for a *TRANSFER_RESPONSE* matching *order_id*."""
-        expiry = time.time() + timeout
-        while time.time() < expiry:
-            msg = client.transport.receive_message(timeout=0.2)
-            if (
-                msg
-                and msg.message_type == MessageType.TRANSFER_RESPONSE
-                and msg.payload.get("order_id") == str(order_id)
-            ):
-                return TransferResponseMessage.from_payload(msg.payload)
-        return None
-
-    # --------------------------------------------------------------
-    # Public command – broadcast *ConfirmationOrder*
-    # --------------------------------------------------------------
-
-    def cmd_broadcast_confirmation(self, order_id_str: str) -> None:
-        """Broadcast a ConfirmationOrder that finalises the given *order_id*."""
+        print(f"🚀 {sender} → broadcast confirmation")
         try:
-            order_id = uuid.UUID(order_id_str)
-        except ValueError:
-            print("❌ order_id must be a valid UUID")
-            return
-
-        order = self._pending_orders.get(order_id)
-        if order is None:
-            print("❌ Unknown order_id – did you *broadcast* the transfer first?")
-            return
-
-        signers = self._order_signers.get(order_id)
-        if not signers:
-            print("❌ Quorum not yet reached for that order – cannot confirm")
-            return
-
-        sender_client = self.clients_map.get(order.sender)
-        if sender_client is None:
-            print(f"❌ Sender client '{order.sender}' not found")
-            return
-
-        self._broadcast_confirmation(sender_client, order, signers)
-        print("✅ ConfirmationOrder broadcast to authorities and recipient")
-        # Remove from pending list once finalised
-        self._pending_orders.pop(order.order_id, None)
-
-    # --------------------------------------------------------------
-    # Internal helper to broadcast confirmation orders
-    # --------------------------------------------------------------
-
-    def _broadcast_confirmation(
-        self,
-        client: Client,
-        order: TransferOrder,
-        signers: List[Station],
-    ) -> None:
-        """Create and broadcast a ConfirmationOrder (internal helper)."""
-        signatures = {auth.name: "signature_placeholder" for auth in signers}
-        confirmation = ConfirmationOrder(
-            order_id=order.order_id,
-            transfer_order=order,
-            authority_signatures=signatures,
-            timestamp=time.time(),
-            status=TransactionStatus.CONFIRMED,
-        )
-
-        req = ConfirmationRequestMessage(confirmation_order=confirmation)
-
-        # 1. Send to every authority so they finalise balances.
-        for auth in self.authorities:
-            msg = Message(
-                message_id=uuid.uuid4(),
-                message_type=MessageType.CONFIRMATION_REQUEST,
-                sender=client.address,
-                recipient=auth.address,
-                timestamp=time.time(),
-                payload=req.to_payload(),
-            )
-            client.transport.send_message(msg, auth.address)
-
-        # 2. Best-effort proof to the recipient.
-        recipient_cli = self.clients_map.get(order.recipient)
-        if recipient_cli:
-            proof_msg = Message(
-                message_id=uuid.uuid4(),
-                message_type=MessageType.CONFIRMATION_RESPONSE,
-                sender=client.address,
-                recipient=recipient_cli.address,
-                timestamp=time.time(),
-                payload=req.to_payload(),
-            )
-            client.transport.send_message(proof_msg, recipient_cli.address) 
+            client.broadcast_confirmation()
+        except Exception as exc:  # pragma: no cover – defensive, should not occur
+            print(f"❌ Broadcast confirmation failed: {exc}")
