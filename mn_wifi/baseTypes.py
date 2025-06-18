@@ -129,7 +129,7 @@ class ClientState:
     name: str
     address: Address
     secret: KeyPair = KeyPair("")
-    sequence_number: int = 1
+    sequence_number: int = 0
     committee: List["AuthorityState"] = field(default_factory=list)
     # Pending transfer (None when idle).
     pending_transfer: Optional[TransferOrder] = None
