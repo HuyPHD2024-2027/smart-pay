@@ -33,7 +33,7 @@ def parse_args(description: str = "FastPay Wi-Fi demo") -> argparse.Namespace:
     Returns
     -------
     argparse.Namespace
-        Parsed CLI options with attributes *authorities* and *logs*.
+        Parsed CLI options with attributes *authorities*, *logs*, and *plot*.
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -44,6 +44,11 @@ def parse_args(description: str = "FastPay Wi-Fi demo") -> argparse.Namespace:
         "--logs",
         action="store_true",
         help="open an xterm per authority and client and tail their logs",
+    )
+    parser.add_argument(
+        "-p", "--plot",
+        action="store_true",
+        help="disable plotting the network graph (plotting is enabled by default)",
     )
     return parser.parse_args()
 

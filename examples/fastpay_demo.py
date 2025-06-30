@@ -5,12 +5,15 @@ Run with *root* privileges because *Mininet-WiFi* requires network
 namespace manipulation::
 
     sudo python3 -m mn_wifi.examples.fastpay_demo -a 4 -l
+    sudo python3 -m mn_wifi.examples.fastpay_demo -a 3 -p  # disable plotting
 
 Options
 -------
 -a / --authorities N   Number of authority nodes (default *3*)
 -l / --logs            Launch an *xterm* for every authority that tails its
                        dedicated log file.
+-p / --plot            Disable plotting the network graph (plotting is enabled
+                       by default).
 
 The script sets up the following topology:
 
@@ -19,6 +22,10 @@ The script sets up the following topology:
   :class:`mn_wifi.authority.WiFiAuthority`;
 * two demo clients (``user1`` and ``user2``) implemented via
   :class:`mn_wifi.client.Client`.
+
+The demo includes mobility model functionality with RandomDirection mobility
+for all nodes, allowing them to move within defined boundaries. Network 
+visualization is enabled by default but can be disabled with the ``-p`` flag.
 
 Once the network is up it hands control to the interactive *FastPay CLI* (see
 ``mn_wifi/examples/fastpay_cli.py``).
@@ -33,7 +40,7 @@ from mininet.log import info, setLogLevel
 from mn_wifi.net import Mininet_wifi
 from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
-from mn_wifi.examples.fastpay_cli import FastPayCLI
+from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.examples.demoCommon import parse_args as _parse_args, open_xterms as _open_xterms, close_xterms as _close_xterms
 from mn_wifi.baseTypes import KeyPair
@@ -41,8 +48,16 @@ from mn_wifi.baseTypes import KeyPair
 # Network-building helpers
 # --------------------------------------------------------------------------------------
 
-def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], List[Client]]:
-    """Instantiate *Mininet-WiFi* topology with *num_auth* authorities."""
+def _create_network(num_auth: int, enable_plot: bool = True) -> Tuple[Mininet_wifi, List[WiFiAuthority], List[Client]]:
+    """Instantiate *Mininet-WiFi* topology with *num_auth* authorities.
+    
+    Args:
+        num_auth: Number of authority nodes to create.
+        enable_plot: Whether to enable network graph plotting (default: True).
+        
+    Returns:
+        Tuple containing the network, list of authorities, and list of clients.
+    """
     net = Mininet_wifi()
 
     info("*** Creating Wi-Fi nodes\n")
@@ -53,14 +68,16 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
         cls=Client,
         transport_kind=TransportKind.TCP,
         ip="10.0.0.2/8",
-        position="10,30,0",
+        range=10,  
+        min_x=5, max_x=25, min_y=20, max_y=40, min_v=1, max_v=5,
     )
     user2 = net.addStation(
         "user2",
         cls=Client,
         transport_kind=TransportKind.TCP,
         ip="10.0.0.3/8",
-        position="60,30,0",
+        range=10,  
+        min_x=50, max_x=70, min_y=20, max_y=40, min_v=1, max_v=5,
     )
     clients = [user1, user2]
     # Authorities -------------------------------------------------------------------
@@ -75,7 +92,9 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
             shard_assignments=set(),
             ip=f"10.0.0.{10 + i}/8",
             port=8000 + i,
+            range=10,  
             position=[20 + (i * 10), 50, 0],
+            min_x=15 + (i * 10), max_x=25 + (i * 10), min_y=40, max_y=60, min_v=1, max_v=3,
         )
         authorities.append(auth)
 
@@ -87,7 +106,7 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
 
     # Propagation model (simple logDistance)
     net.setPropagationModel(model="logDistance", exp=3.0)
-
+    
     info("*** Configuring nodes\n")
     net.configureNodes()
 
@@ -95,6 +114,14 @@ def _create_network(num_auth: int) -> Tuple[Mininet_wifi, List[WiFiAuthority], L
     h1 = net.addHost("gw", ip="10.0.0.254/8")
     net.addLink(ap1, h1)
 
+    # Plotting and mobility model setup
+    if enable_plot:
+        info("*** Plotting network graph\n")
+        net.plotGraph(max_x=100, max_y=80)  # Explicit dimensions for proper range visualization
+
+    info("*** Setting up mobility model\n")
+    net.setMobilityModel(time=0, model='RandomDirection',
+                         max_x=100, max_y=80, seed=20)
     info("*** Starting network\n")
     net.build()
     c1.start()
@@ -164,62 +191,16 @@ def main() -> None:
 
     net = None
     try:
-        net, authorities, clients = _create_network(opts.authorities)
+        net, authorities, clients = _create_network(opts.authorities, enable_plot=not opts.plot)
         if opts.logs:
             _open_xterms(authorities, clients)
 
         # ------------------------------------------------------------------
         # Hand over to interactive CLI
         # ------------------------------------------------------------------
-        cli = FastPayCLI(authorities, clients)
-        print("Type 'help' for a list of commands. Ctrl-D or Ctrl-C to exit.\n")
-
-        while True:
-            try:
-                line = input("FastPay> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("")
-                break
-
-            if not line:
-                continue
-            parts = line.split()
-            cmd = parts[0]
-
-            if cmd in ("exit", "quit"):
-                break
-            if cmd == "help":
-                print("Available commands:")
-                print("   ping <src> <dst>")
-                print("   balance <user>")
-                print("   infor <station|all>")
-                print("   power")
-                print("   performance <authority>")
-                print("   transfer <sender> <recipient> <amount>")
-                print("   <sender> broadcast confirmation")
-                print("   quit / exit")
-                continue
-
-            # Dispatch to CLI helpers ------------------------------------------------
-            try:
-                if cmd == "ping" and len(parts) == 3:
-                    cli.cmd_ping(parts[1], parts[2])
-                elif cmd == "balance" and len(parts) == 2:
-                    cli.cmd_balance(parts[1])
-                elif cmd == "infor" and len(parts) == 2:
-                    cli.cmd_infor(parts[1])
-                elif cmd == "power" and len(parts) == 1:
-                    cli.cmd_voting_power()
-                elif cmd == "performance" and len(parts) == 2:
-                    cli.cmd_performance(parts[1])
-                elif cmd == "transfer" and len(parts) == 4:
-                    cli.cmd_transfer(parts[1], parts[2], int(parts[3]))
-                elif len(parts) == 3 and parts[2] == "confirmation":
-                    cli.cmd_broadcast_confirmation(parts[0])
-                else:
-                    print("❓ Unknown / malformed command – type 'help'")
-            except Exception as exc:  # pragma: no cover
-                print(f"❌ Command failed: {exc}")
+        cli = FastPayCLI(net, authorities, clients)
+        print("Type 'help_fastpay' for FastPay commands or 'help' for all commands. Ctrl-D or Ctrl-C to exit.\n")
+        cli.cmdloop()
 
     finally:
         if net is not None:

@@ -35,7 +35,7 @@ from mn_wifi.wmediumdConnector import interference
 
 from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
-from mn_wifi.examples.fastpay_cli import FastPayCLI
+from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.examples.demoCommon import (
     parse_args as _parse_args,
@@ -148,51 +148,9 @@ def main() -> None:
         net, authorities, clients = _create_network(opts.authorities)
 
         # Hand over to FastPay interactive shell -----------------------------------
-        cli = FastPayCLI(authorities, clients)
-        print("\nType 'help' for commands.  Ctrl-D / Ctrl-C to exit.\n")
-
-        while True:
-            try:
-                line = input("FastPay> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("")
-                break
-
-            if not line:
-                continue
-            parts = line.split()
-            cmd = parts[0]
-
-            if cmd in ("exit", "quit"):
-                break
-            if cmd == "help":
-                print("Available commands:")
-                print("   ping <src> <dst>")
-                print("   balance <user>")
-                print("   initiate <sender> <recipient> <amount>")
-                print("   sign <order-id> <sender>")
-                print("   broadcast <order-id>")
-                print("   quit / exit")
-                continue
-
-            # Dispatch to CLI ------------------------------------------------------
-            parts = line.split()
-            cmd = parts[0]
-            try:
-                if cmd == "ping" and len(parts) == 3:
-                    cli.cmd_ping(parts[1], parts[2])
-                elif cmd == "balance" and len(parts) == 2:
-                    cli.cmd_balance(parts[1])
-                elif cmd == "initiate" and len(parts) == 4:
-                    cli.cmd_initiate(parts[1], parts[2], int(parts[3]))
-                elif cmd == "sign" and len(parts) == 3:
-                    cli.cmd_sign(parts[1], parts[2])
-                elif cmd == "broadcast" and len(parts) == 2:
-                    cli.cmd_broadcast(parts[1])
-                else:
-                    print("❓ Unknown command – type 'help'")
-            except Exception as exc:  # pragma: no cover
-                print(f"❌ Command failed: {exc}")
+        cli = FastPayCLI(net, authorities, clients)
+        print("\nType 'help_fastpay' for FastPay commands or 'help' for all commands. Ctrl-D / Ctrl-C to exit.\n")
+        cli.cmdloop()
 
     finally:
         if net is not None:

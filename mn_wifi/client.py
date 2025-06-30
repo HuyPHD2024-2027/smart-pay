@@ -78,7 +78,6 @@ class Client(Station):
         # -------------------------------------------------------------------------------------
         defaults = {
             "ip": ip,
-            "position": position or [0, 0, 0],
             "range": 100,
         }
         defaults.update(station_params)

@@ -15,6 +15,7 @@ mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
 mn_wifi/clean.py
 mn_wifi/cli.py
+mn_wifi/cli_fastpay.py
 mn_wifi/client.py
 mn_wifi/clientLogger.py
 mn_wifi/committee.py
@@ -65,7 +66,6 @@ mn_wifi/examples/battery.py
 mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/demoCommon.py
 mn_wifi/examples/demoWifiDirect.py
-mn_wifi/examples/fastpay_cli.py
 mn_wifi/examples/fastpay_demo.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
