@@ -79,12 +79,11 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
             script: Script file to execute.
             cmd: Single command to execute.
         """
-        # Initialize parent CLI
-        super().__init__(mn_wifi, stdin=stdin, script=script, cmd=cmd)
-        
-        # FastPay-specific initialization
+
         self.authorities = authorities
         self.clients = clients
+
+        # Lookup maps and in-memory bookkeeping helpers
         self.clients_map: Dict[str, Client] = {c.name: c for c in clients}
         self._pending_orders: Dict[uuid.UUID, TransferOrder] = {}
         self._quorum_weight = int(len(authorities) * quorum_ratio) + 1
@@ -92,10 +91,13 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         # broadcast a ConfirmationOrder containing their signatures.
         self._order_signers: Dict[uuid.UUID, List[Station]] = {}
 
-        # Bring client transports up so that they can receive replies.
+        # Bring client transports up so they can receive replies *before* the
+        # interactive shell becomes available.
         for client in clients:
             if hasattr(client.transport, "connect"):
                 client.transport.connect()  # type: ignore[attr-defined]
+
+        super().__init__(mn_wifi, stdin=stdin, script=script, cmd=cmd)
 
     # ---------------------------------------------------------------------
     # Low-level utilities
