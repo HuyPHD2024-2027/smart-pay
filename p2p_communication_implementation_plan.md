@@ -461,3 +461,52 @@ class ConnectionState:
 **Priority:** High  
 **Estimated Effort:** 6-10 weeks  
 **Complexity:** Medium-High 
+
+
+Plain Wi-Fi Direct + wmediumd SNR model (RECOMMENDED)
+Authorities & clients are stations only (no AP) communicating by Wi-Fi Direct.
+wmediumd configured in SNR mode auto-derates PHY rate as distance/RSSI drops ― gives realistic throughput vs. distance, frame-loss, hidden-terminal effects.
+Mininet-WiFi mobility (RandomDirection, RandomWaypoint, etc.) drives clients; authorities may be static or slow-moving.
+Propagation model set to logDistance (exp≈4) so RSSI ≈ realistic indoor path-loss; wmediumd consumes it.
+Pros: Standards-based, no AP, realistic PHY/ MAC behaviour, already supported by code-base.
+Cons: Limited to single-hop; group negotiation adds a few seconds; wmediumd increases CPU load.
+Ad-hoc (IBSS) + MANET routing + wmediumd
+All nodes join one IBSS; use OLSR/BATMAN.
+Pros: Multi-hop out of the box.
+Cons: Larger overhead, routing convergence delays, less realistic for phone-to-POS usage.
+802.11s Mesh + wmediumd
+Standards mesh, self-healing; Mininet-WiFi supports it.
+Pros: Scales; multi-hop; real-world standard.
+Cons: Considerable complexity, heavier airtime overhead, unnecessary for payment scenario.
+Hybrid: IBSS discovery → Wi-Fi Direct session
+Ad-hoc beaconing to discover peers, then form temporary P2P groups.
+Pros: Fast discovery, secure transaction channel.
+Cons: Highest complexity (two MAC modes per node).
+Hardware-in-the-loop (HIL)
+Connect a handful of real phones/RPi to the simulation via TAP/ GRE bridges.
+Pros: Ultimate realism.
+Cons: Requires lab gear, synchronisation, slower CI.
+Chosen solution ⇒ #1 (Plain Wi-Fi Direct + wmediumd)
+It fulfils “no AP”, gives realistic distance ↔ throughput curves, is already partially implemented, and keeps complexity moderate.
+
+Next Steps / TODO
+Enhance WiFiDirectTransport to cache group negotiations (warm-start).
+Plug iperf measurements into the benchmark to log raw TCP/UDP bitrate between a rotating pair of nodes for airtime utilisation graphs.
+Integrate the benchmark into CI (GitHub Action running with --no-plot & small topology).
+Extend benchmark to multi-hop scenarios (future work: Solution #3).
+
+
+timestamp: 2025-07-03T09:00:00Z
+chosen_solution: "Plain Wi-Fi Direct + wmediumd SNR model (Solution #1)"
+rationale: |
+  Balances realism (distance-dependent throughput, frame loss) with moderate complexity
+  and leverages existing WiFiDirectTransport infrastructure. Suitable for offline
+  payment scenario without introducing mesh/ routing overhead.
+changes:
+  - added examples/fastpay_p2p_benchmark.py (benchmark tool with typing, docstrings)
+  - employs wmediumd SNR, realistic mobility, CSV & JSON metric export
+status: success
+next_steps:
+  - integrate iperf throughput sampling
+  - wire benchmark into CI
+  - optimise WiFiDirectTransport connection pooling

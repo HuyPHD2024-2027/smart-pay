@@ -1,0 +1,9 @@
+{
+  "transactions": 500,
+  "success_ratio": 1.0,
+  "min_latency_ms": 684.19,
+  "avg_latency_ms": 1574.96,
+  "p95_latency_ms": 2264.15,
+  "max_latency_ms": 10052.4,
+  "throughput_tps": 0.63
+}
