@@ -67,6 +67,7 @@ mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/demoCommon.py
 mn_wifi/examples/demoWifiDirect.py
 mn_wifi/examples/fastpay_demo.py
+mn_wifi/examples/fastpay_p2p_benchmark.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
 mn_wifi/examples/handover_bgscan.py
@@ -93,6 +94,7 @@ mn_wifi/examples/vanet-sumo.py
 mn_wifi/examples/wifi6.py
 mn_wifi/examples/wifi7.py
 mn_wifi/examples/wifiDirect.py
+mn_wifi/examples/wifi_direct_enhanced.py
 mn_wifi/examples/wmediumd_error_prob.py
 mn_wifi/examples/wmediumd_interference.py
 mn_wifi/examples/wmediumd_mobility.py
