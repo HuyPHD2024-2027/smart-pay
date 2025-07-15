@@ -36,6 +36,7 @@
 * **Mesh Networking Evolution:** IEEE 802.11s standard, production deployments (32,767 node Bluetooth Mesh networks), self-healing capabilities.
 * **Offline Payment Research:** BOLT Lightning, Pay-With-Sats, NFC card emulation—all limited by range/scalability.
 * **Distributed Consensus:** BFT protocols adapted for mobile ad-hoc networks, committee-based approaches.
+* **FastPay High-Throughput BFT Payments:** FastPay\cite{baudet2020fastpay} employs a committee of authorities that pre-sign account certificates; clients obtain a quorum of signatures in a single network round, delivering sub-100 ms settlement latency and >80 k TPS. This single-round, high-throughput design inspires our dynamic, volume-weighted voting extension.
 * **Research Gap:** No scalable, infrastructure-free payment system leveraging modern mesh capabilities.
 
 ### 3.3 Research Vision / Postulate (¼ page)
@@ -61,6 +62,9 @@
   - Phase 2: Multi-hop transfer order propagation
   - Phase 3: Distributed committee consensus (Byzantine fault tolerant)
   - Phase 4: Confirmation propagation and settlement
+
+* **Side-Chain Anchoring:** Our mesh settlement layer operates as a pre-funded side-chain cryptographically anchored to a Primary real-time gross-settlement (RTGS) ledger that retains authoritative account balances. Prior to disconnection, users escrow funds from their Primary accounts—either smart-contract balances on a programmable blockchain (e.g., Ethereum, Libra) or entries in a conventional central-bank RTGS—into escrow addresses recognised by the mesh committee. While offline, FastPay authorities exchange these escrowed balances using single-round Byzantine-fault-tolerant certificates, allowing sub-second retail payments without involving the Primary. When connectivity is re-established, the committee submits a batched net-settlement transaction that releases or re-locks escrows and re-synchronises the Primary’s state with the side-chain. Because every unit of value circulating in the mesh is backed one-to-one by locked funds on the Primary, the design eliminates double-spend risk without introducing a native asset.
+ 
 * **Security Model:**
   - Dual-layer encryption: Network (AES-128-CCM) + Application (Ed25519)
   - Distributed trust with no central authority
@@ -97,7 +101,7 @@
 ## 4 Reference List (≤ 8 entries, fits ½ column)
 1. IEEE Std 802.11s-2011, *IEEE Standard for Mesh Networking*
 2. Castro & Liskov, "Practical Byzantine Fault Tolerance," *OSDI '99*
-3. Goodell & Fink, "FastPay: High-Performance Byzantine Fault Tolerant Settlement," *USENIX Security '21*
+3. Baudet et al., "FastPay: High-Performance Byzantine Fault Tolerant Settlement," *USENIX Security '20*
 4. Dutta et al., "Bluetooth Mesh Networking: An Overview," *IEEE Comm. Surveys*, 2022
 5. Bridgefy Inc., "Mesh Networks for Emergency Communication," *ACM MobiSys '20*
 6. Lamport et al., "The Byzantine Generals Problem," *ACM TOCS*, 1982
