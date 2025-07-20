@@ -395,6 +395,7 @@ def main() -> None:
             print("  Test gateway bridge:")
             print(f"    curl http://10.0.0.254:{args.gateway_port}/authorities")
             print(f"    curl http://10.0.0.254:{args.gateway_port}/health")
+            print(f"    curl http://10.0.0.254:{args.gateway_port}/shards")
         print("=" * 70)
         print("Type 'help' for more commands or Ctrl-D to exit.\n")
         

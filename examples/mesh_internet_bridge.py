@@ -18,8 +18,23 @@ from mininet.log import info
 
 from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
+import dataclasses
+from uuid import UUID
+from enum import Enum
 
 __all__ = ["MeshInternetBridge"]
+
+# ---------------------------------------------------------------------------
+# Basic static shard list – demo uses round-robin assignment               
+# ---------------------------------------------------------------------------
+
+SHARD_NAMES: list[str] = [
+    "Alpha Shard",
+    "Beta Shard",
+    "Gamma Shard",
+    "Delta Shard",
+    "Epsilon Shard",
+]
 
 
 class MeshInternetBridge:
@@ -77,6 +92,42 @@ class MeshInternetBridge:
     # Registration helpers
     # ---------------------------------------------------------------------
 
+    # Recursive JSON-safe serialiser ------------------------------------
+
+    def _to_jsonable(self, obj: Any) -> Any:  # noqa: ANN401 – generic helper
+        """Return *obj* converted into JSON-serialisable structures.
+
+        • dataclasses → dict (recursively processed)
+        • set → list (sorted for determinism when items are plain types)  
+        • UUID → str  
+        • list / tuple / dict processed recursively  
+        • everything else returned unchanged.
+        """
+
+        if dataclasses.is_dataclass(obj):
+            return {k: self._to_jsonable(v) for k, v in dataclasses.asdict(obj).items()}
+
+        if isinstance(obj, dict):
+            return {k: self._to_jsonable(v) for k, v in obj.items()}
+
+        if isinstance(obj, (list, tuple)):
+            return [self._to_jsonable(v) for v in obj]
+
+        if isinstance(obj, set):
+            # Try to return a deterministic ordering when items are simple types
+            try:
+                return [self._to_jsonable(v) for v in sorted(obj)]
+            except Exception:
+                return [self._to_jsonable(v) for v in obj]
+
+        if isinstance(obj, UUID):
+            return str(obj)
+
+        if isinstance(obj, Enum):
+            return obj.value
+
+        return obj
+
     def register_authority(self, authority: WiFiAuthority) -> None:  # noqa: D401
         """Add/refresh *authority* entry used by the JSON API."""
 
@@ -103,14 +154,39 @@ class MeshInternetBridge:
                 "node_type": authority.address.node_type.value,
             },
             "status": "online",
-            "last_sync_time": getattr(authority.state, "last_sync_time", None),
-            "accounts": accounts,
-            "committee_members": list(getattr(authority.state, "committee_members", [])),
-            "range": authority.params.get("range", 100),
-            "txpower": authority.params.get("txpower", 20),
-            "antennaGain": authority.params.get("antennaGain", 5),
-            "stake": authority.stake,
+            "state": self._to_jsonable(authority.state),
         }
+
+        # Assign authority to a shard (round-robin based on index) ---------
+        idx = len(self.authorities) - 1  # current index after append
+        shard_name = SHARD_NAMES[idx % len(SHARD_NAMES)]
+        self.authorities[authority.name]["shard"] = shard_name
+
+    # ------------------------------------------------------------------
+    # Build shard view --------------------------------------------------
+    # ------------------------------------------------------------------
+
+    def _get_shards(self) -> list[dict]:  # JSON-ready shard list
+        """Aggregate authority information into *ShardInfo* objects."""
+
+        shards: Dict[str, dict] = {}
+        for auth in self.authorities.values():
+            shard = auth.get("shard", SHARD_NAMES[0])
+            entry = shards.setdefault(shard, {
+                "shard_id": shard,
+                "account_count": 0,
+                "total_transactions": 0,
+                "total_stake": 0,
+                "last_sync": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                "authorities": [],
+            })
+
+            entry["authorities"].append(auth)
+            entry["account_count"] += len(auth.get("accounts", {}))
+            entry["total_transactions"] += auth.get("state", {}).get("total_transactions", 0)
+            entry["total_stake"] += auth.get("state", {}).get("total_stake", 0)
+
+        return list(shards.values())
 
     # ---------------------------------------------------------------------
     # Web server
@@ -150,6 +226,11 @@ class MeshInternetBridge:
                     self._json({
                         "authorities": list(self.bridge.authorities.values()),
                         "count": len(self.bridge.authorities),
+                        "timestamp": time.time(),
+                    })
+                elif self.path == "/shards":
+                    self._json({
+                        "shards": self.bridge._get_shards(),
                         "timestamp": time.time(),
                     })
                 else:
