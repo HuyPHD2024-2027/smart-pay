@@ -67,6 +67,8 @@ mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/demoCommon.py
 mn_wifi/examples/demoWifiDirect.py
 mn_wifi/examples/fastpay_demo.py
+mn_wifi/examples/fastpay_mesh_demo.py
+mn_wifi/examples/fastpay_mesh_internet_demo.py
 mn_wifi/examples/fastpay_p2p_benchmark.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
@@ -74,6 +76,7 @@ mn_wifi/examples/handover_bgscan.py
 mn_wifi/examples/ieee80211p.py
 mn_wifi/examples/mesh.py
 mn_wifi/examples/meshAP.py
+mn_wifi/examples/mesh_internet_bridge.py
 mn_wifi/examples/miniedit.py
 mn_wifi/examples/mobility.py
 mn_wifi/examples/mobilityModel.py
@@ -97,7 +100,7 @@ mn_wifi/examples/wifiDirect.py
 mn_wifi/examples/wifi_direct_enhanced.py
 mn_wifi/examples/wmediumd_error_prob.py
 mn_wifi/examples/wmediumd_interference.py
-mn_wifi/examples/wmediumd_mobility.py
+mn_wifi/examples/wmediumd_interference_lowpan.py
 mn_wifi/examples/wmediumd_multimedium.py
 mn_wifi/examples/wps_auth.py
 mn_wifi/examples/wwan.py
@@ -116,6 +119,7 @@ mn_wifi/sixLoWPAN/module.py
 mn_wifi/sixLoWPAN/net.py
 mn_wifi/sixLoWPAN/node.py
 mn_wifi/sixLoWPAN/util.py
+mn_wifi/sixLoWPAN/wmediumdConnector.py
 mn_wifi/sumo/__init__.py
 mn_wifi/sumo/function.py
 mn_wifi/sumo/runner.py

@@ -142,6 +142,7 @@ class ClientState:
     # The known spendable balance (including a possible initial funding, excluding unknown sent
     # or received certificates).
     balance: int = 0
+    stake: int = 0
 
     def next_sequence(self) -> int:
         """Return the current sequence number *and* increment internal counter."""
@@ -185,6 +186,8 @@ class AuthorityState:
     committee_members: Set[str]
     authority_signature: Optional[str] = None
     last_sync_time: float = 0.0
+    stake: int = 0
+    balance: int = 0
     
     def __post_init__(self) -> None:
         """Initialize default values."""

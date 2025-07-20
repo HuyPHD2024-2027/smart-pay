@@ -16,29 +16,28 @@ from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
 
 __all__ = [
-    "parse_args",
+    "parse_common_args",
+    "parse_mesh_internet_args",
     "open_xterms",
     "close_xterms",
 ]
 
 
-def parse_args(description: str = "FastPay Wi-Fi demo") -> argparse.Namespace:
-    """Parse common command-line options.
+# ---------------------------------------------------------------------------
+# 1. Base/common CLI arguments ---------------------------------------------
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    description:
-        Short description displayed in the ``--help`` banner.
 
-    Returns
-    -------
-    argparse.Namespace
-        Parsed CLI options with attributes *authorities*, *logs*, and *plot*.
+def parse_common_args(description: str = "FastPay Wi-Fi demo") -> argparse.Namespace:
+    """Options shared by every FastPay demo script.
+
+    Provides *authorities*, *clients*, *logs*, and *plot* flags.
     """
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument(
-        "-a", "--authorities", type=int, default=3, help="number of authorities"
-    )
+
+    parser = argparse.ArgumentParser(description=description, add_help=False)
+
+    parser.add_argument("-a", "--authorities", type=int, default=3, help="number of authorities")
+    parser.add_argument("-c", "--clients", type=int, default=3, help="number of client stations")
     parser.add_argument(
         "-l",
         "--logs",
@@ -46,11 +45,41 @@ def parse_args(description: str = "FastPay Wi-Fi demo") -> argparse.Namespace:
         help="open an xterm per authority and client and tail their logs",
     )
     parser.add_argument(
-        "-p", "--plot",
+        "-p",
+        "--plot",
         action="store_true",
         help="disable plotting the network graph (plotting is enabled by default)",
     )
-    return parser.parse_args()
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# 2. Mesh-with-Internet specific arguments ---------------------------------
+# ---------------------------------------------------------------------------
+
+
+def parse_mesh_internet_args(description: str = "FastPay IEEE 802.11s Mesh Demo") -> argparse.Namespace:  # noqa: D401
+    """Return `argparse.Namespace` with both common and mesh-internet flags."""
+
+    # Start with the shared options ---------------------------------------
+    common_parser = parse_common_args(description)
+
+    # Create a parent to inherit help formatting --------------------------
+    full_parser = argparse.ArgumentParser(
+        description=description,
+        parents=[common_parser],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # Mesh/internet-specific flags ----------------------------------------
+    full_parser.add_argument("--internet", "-i", action="store_true", help="enable internet gateway bridge")
+    full_parser.add_argument("--gateway-port", "-g", type=int, default=8080, help="gateway HTTP bridge port (default: 8080)")
+    full_parser.add_argument("--mesh-id", "-m", type=str, default="fastpay-mesh", help="mesh network identifier")
+    full_parser.add_argument("--mobility", action="store_true", help="enable advanced mobility models")
+    full_parser.add_argument("--no-security", action="store_true", help="disable mesh security (not recommended)")
+
+    return full_parser.parse_args()
 
 
 def open_xterms(authorities: List[WiFiAuthority], clients: List[Client]) -> None:

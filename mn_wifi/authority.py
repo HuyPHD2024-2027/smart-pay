@@ -100,7 +100,8 @@ class WiFiAuthority(Station):
             accounts={},
             committee_members=committee_members,
             last_sync_time=time.time(),
-            authority_signature=f"signed_by_authority_{name}"
+            authority_signature=f"signed_by_authority_{name}",
+            stake=0
         )
         
         self.p2p_connections: Dict[str, Address] = {}

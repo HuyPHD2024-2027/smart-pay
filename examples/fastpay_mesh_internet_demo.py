@@ -42,9 +42,10 @@ import time
 from typing import Dict, List, Optional, Tuple, Any, Union
 from urllib.parse import urlparse, parse_qs
 from uuid import uuid4, UUID
+import dataclasses
 
 from mininet.log import info, setLogLevel
-from mininet.node import NAT
+from mininet.nodelib import NAT
 from mn_wifi.link import wmediumd, mesh
 from mn_wifi.wmediumdConnector import interference
 from mn_wifi.net import Mininet_wifi
@@ -53,331 +54,15 @@ from mn_wifi.client import Client
 from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
-from mn_wifi.examples.demoCommon import open_xterms as _open_xterms, close_xterms as _close_xterms
+from mn_wifi.examples.mesh_internet_bridge import MeshInternetBridge
+from mn_wifi.examples.demoCommon import (
+    open_xterms as _open_xterms,
+    close_xterms as _close_xterms,
+    parse_mesh_internet_args,
+)
 
 
-class MeshInternetBridge:
-    """HTTP bridge server that enables web backend to communicate with mesh authorities.
-    
-    This bridge translates HTTP requests to FastPay TCP protocol and enables
-    seamless communication between external web interfaces and the mesh network.
-    """
-    
-    def __init__(self, port: int = 8080) -> None:
-        """Initialize the mesh internet bridge.
-        
-        Args:
-            port: HTTP server port for the bridge
-        """
-        self.port = port
-        self.authorities: Dict[str, Dict[str, Any]] = {}
-        self.server: Optional[socketserver.TCPServer] = None
-        self.server_thread: Optional[threading.Thread] = None
-        self.running = False
-        
-    def register_authority(self, authority: WiFiAuthority) -> None:
-        """Register an authority with the bridge.
-        
-        Args:
-            authority: WiFiAuthority instance to register
-        """
-        self.authorities[authority.name] = {
-            'name': authority.name,
-            'ip': authority.IP(),
-            'port': authority.port,
-            'position': {
-                'x': float(authority.params.get('position', [0, 0, 0])[0]),
-                'y': float(authority.params.get('position', [0, 0, 0])[1]),
-                'z': float(authority.params.get('position', [0, 0, 0])[2])
-            },
-            'status': 'online',
-            'committee_members': list(authority.committee_members) if hasattr(authority, 'committee_members') else []
-        }
-        
-    def start_bridge_server(self, nat_node: Optional[NAT] = None) -> None:
-        """Start the HTTP bridge server.
-        
-        Args:
-            nat_node: NAT node to run the server on (if None, runs on host)
-        """
-        if self.running:
-            return
-            
-        info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
-        
-        # Create custom HTTP handler with access to bridge instance
-        class BridgeHandler(http.server.BaseHTTPRequestHandler):
-            def __init__(self, *args, bridge=None, **kwargs):
-                self.bridge = bridge
-                super().__init__(*args, **kwargs)
-                
-            def log_message(self, format: str, *args) -> None:
-                """Suppress default HTTP logging."""
-                pass
-                
-            def do_GET(self) -> None:
-                """Handle GET requests for discovery and status."""
-                try:
-                    if self.path == "/authorities":
-                        self._send_authorities_list()
-                    elif self.path.startswith("/authorities/"):
-                        self._handle_authority_request()
-                    elif self.path == "/health":
-                        self._send_health_status()
-                    else:
-                        self._send_not_found()
-                except Exception as e:
-                    self._send_error(str(e))
-                    
-            def do_POST(self) -> None:
-                """Handle POST requests for transfers and operations."""
-                try:
-                    if "/transfer" in self.path:
-                        self._handle_transfer_request()
-                    elif "/ping" in self.path:
-                        self._handle_ping_request()
-                    else:
-                        self._send_not_found()
-                except Exception as e:
-                    self._send_error(str(e))
-                    
-            def _send_authorities_list(self) -> None:
-                """Send list of discovered authorities."""
-                response = {
-                    'authorities': list(self.bridge.authorities.values()),
-                    'count': len(self.bridge.authorities),
-                    'timestamp': time.time()
-                }
-                self._send_json_response(response)
-                
-            def _handle_authority_request(self) -> None:
-                """Handle individual authority requests."""
-                path_parts = self.path.split('/')
-                if len(path_parts) >= 3:
-                    authority_name = path_parts[2]
-                    if authority_name in self.bridge.authorities:
-                        self._send_json_response(self.bridge.authorities[authority_name])
-                    else:
-                        self._send_not_found()
-                else:
-                    self._send_not_found()
-                    
-            def _handle_transfer_request(self) -> None:
-                """Handle transfer requests by forwarding to mesh authorities."""
-                content_length = int(self.headers.get('Content-Length', 0))
-                if content_length > 0:
-                    post_data = self.rfile.read(content_length)
-                    try:
-                        transfer_data = json.loads(post_data.decode('utf-8'))
-                        # Extract authority name from path
-                        path_parts = self.path.split('/')
-                        authority_name = None
-                        for i, part in enumerate(path_parts):
-                            if part == "authorities" and i + 1 < len(path_parts):
-                                authority_name = path_parts[i + 1]
-                                break
-                                
-                        if authority_name and authority_name in self.bridge.authorities:
-                            result = self._forward_to_mesh_authority(authority_name, transfer_data)
-                            self._send_json_response(result)
-                        else:
-                            self._send_error("Authority not found")
-                    except json.JSONDecodeError:
-                        self._send_error("Invalid JSON data")
-                else:
-                    self._send_error("No data provided")
-                    
-            def _handle_ping_request(self) -> None:
-                """Handle ping requests to test authority connectivity."""
-                path_parts = self.path.split('/')
-                authority_name = None
-                for i, part in enumerate(path_parts):
-                    if part == "authorities" and i + 1 < len(path_parts):
-                        authority_name = path_parts[i + 1]
-                        break
-                        
-                if authority_name and authority_name in self.bridge.authorities:
-                    result = self._ping_mesh_authority(authority_name)
-                    self._send_json_response(result)
-                else:
-                    self._send_error("Authority not found")
-                    
-            def _forward_to_mesh_authority(self, authority_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
-                """Forward request to mesh authority via TCP.
-                
-                Args:
-                    authority_name: Name of the target authority
-                    data: Request data to forward
-                    
-                Returns:
-                    Response from the authority
-                """
-                authority_info = self.bridge.authorities[authority_name]
-                ip = authority_info['ip']
-                port = authority_info['port']
-                
-                try:
-                    # Use FastPay TCP protocol to communicate with authority
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(5.0)  # 5 second timeout
-                    sock.connect((ip, port))
-                    
-                    # Send data using FastPay protocol (JSON with length prefix)
-                    message = json.dumps(data).encode('utf-8')
-                    length_prefix = len(message).to_bytes(4, byteorder='big')
-                    sock.send(length_prefix + message)
-                    
-                    # Receive response
-                    response_length_bytes = sock.recv(4)
-                    if len(response_length_bytes) == 4:
-                        response_length = int.from_bytes(response_length_bytes, byteorder='big')
-                        response_data = sock.recv(response_length)
-                        response = json.loads(response_data.decode('utf-8'))
-                        sock.close()
-                        return {
-                            'success': True,
-                            'data': response,
-                            'authority': authority_name,
-                            'timestamp': time.time()
-                        }
-                    else:
-                        sock.close()
-                        return {
-                            'success': False,
-                            'error': 'Invalid response from authority',
-                            'authority': authority_name,
-                            'timestamp': time.time()
-                        }
-                        
-                except Exception as e:
-                    return {
-                        'success': False,
-                        'error': str(e),
-                        'authority': authority_name,
-                        'timestamp': time.time()
-                    }
-                    
-            def _ping_mesh_authority(self, authority_name: str) -> Dict[str, Any]:
-                """Ping mesh authority to test connectivity.
-                
-                Args:
-                    authority_name: Name of the authority to ping
-                    
-                Returns:
-                    Ping result
-                """
-                authority_info = self.bridge.authorities[authority_name]
-                ip = authority_info['ip']
-                port = authority_info['port']
-                
-                try:
-                    start_time = time.time()
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(2.0)  # 2 second timeout for ping
-                    sock.connect((ip, port))
-                    sock.close()
-                    end_time = time.time()
-                    
-                    return {
-                        'success': True,
-                        'authority': authority_name,
-                        'latency_ms': round((end_time - start_time) * 1000, 2),
-                        'timestamp': time.time()
-                    }
-                except Exception as e:
-                    return {
-                        'success': False,
-                        'authority': authority_name,
-                        'error': str(e),
-                        'timestamp': time.time()
-                    }
-                    
-            def _send_health_status(self) -> None:
-                """Send bridge health status."""
-                response = {
-                    'status': 'healthy',
-                    'bridge_port': self.bridge.port,
-                    'authorities_count': len(self.bridge.authorities),
-                    'timestamp': time.time()
-                }
-                self._send_json_response(response)
-                
-            def _send_json_response(self, data: Dict[str, Any]) -> None:
-                """Send JSON response.
-                
-                Args:
-                    data: Data to send as JSON
-                """
-                response_data = json.dumps(data).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(response_data)))
-                self.send_header('Access-Control-Allow-Origin', '*')  # Enable CORS
-                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-                self.end_headers()
-                self.wfile.write(response_data)
-                
-            def _send_error(self, message: str) -> None:
-                """Send error response.
-                
-                Args:
-                    message: Error message
-                """
-                response = {
-                    'error': message,
-                    'timestamp': time.time()
-                }
-                response_data = json.dumps(response).encode('utf-8')
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(response_data)))
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(response_data)
-                
-            def _send_not_found(self) -> None:
-                """Send 404 not found response."""
-                response = {
-                    'error': 'Not found',
-                    'timestamp': time.time()
-                }
-                response_data = json.dumps(response).encode('utf-8')
-                self.send_response(404)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(response_data)))
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(response_data)
-        
-        # Create HTTP server with custom handler
-        def handler_factory(*args, **kwargs):
-            return BridgeHandler(*args, bridge=self, **kwargs)
-            
-        try:
-            self.server = socketserver.TCPServer(("", self.port), handler_factory)
-            self.server.allow_reuse_address = True
-            self.running = True
-            
-            # Start server in separate thread
-            self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-            self.server_thread.start()
-            
-            info(f"✅ Mesh Internet Bridge started on port {self.port}\n")
-        except Exception as e:
-            info(f"❌ Failed to start bridge server: {e}\n")
-            
-    def stop_bridge_server(self) -> None:
-        """Stop the HTTP bridge server."""
-        if self.running and self.server:
-            info("🛑 Stopping Mesh Internet Bridge\n")
-            self.running = False
-            self.server.shutdown()
-            self.server.server_close()
-            if self.server_thread and self.server_thread.is_alive():
-                self.server_thread.join(timeout=2)
-            self.server = None
-            self.server_thread = None
+# MeshInternetBridge moved to separate module (mesh_internet_bridge.py)
 
 
 def create_mesh_network_with_internet(
@@ -437,7 +122,7 @@ def create_mesh_network_with_internet(
             cls=Client,  # use core client class
             ip=f"10.0.0.{20 + i}/8",
             port=9000 + i,
-            position=[30 + (i * 20), 20, 0],
+            # position=[30 + (i * 20), 20, 0],
             range=30,
             txpower=15,
         )
@@ -445,23 +130,23 @@ def create_mesh_network_with_internet(
     
     # Add internet gateway if enabled
     bridge = None
+    gateway_host = None
     if enable_internet:
         info("🌐 Adding Internet Gateway\n")
         
-        # Add access point for internet gateway
-        ap_inet = net.addAccessPoint(
-            'ap-inet', 
-            ssid='inet-gateway',
-            position='150,50,0',
-            range=100,
-            ip='10.0.0.254/8'
+        # Add host node as internet gateway (replaces access point)
+        gateway_host = net.addHost(
+            'gw-host',
+            ip='10.0.0.254/8',
+            position=[150, 50, 0]
         )
         
-        # Add NAT for internet connectivity (mn-wifi native)
-        nat = net.addNAT(name='nat0', connect=ap_inet, ip='10.0.0.1/8')
+        # Add NAT for internet connectivity using the host gateway
+        nat = net.addNAT(name='nat0', connect=gateway_host, ip='10.0.0.1/8')
         
-        # Create mesh-internet bridge service
-        bridge = MeshInternetBridge(port=gateway_port)
+        # Create mesh-internet bridge service, passing clients so HTTP API can
+        # reuse client.transfer when /transfer is called.
+        bridge = MeshInternetBridge(clients, port=gateway_port)
     
     # Configure mesh networking
     info("*** Configuring IEEE 802.11s mesh\n")
@@ -481,11 +166,10 @@ def create_mesh_network_with_internet(
                 intf=f'user{i}-wlan0', channel=5, ht_cap='HT40+')
 
     # Add gateway connection if internet is enabled
-    if enable_internet and bridge:
+    if enable_internet and bridge and gateway_host:
         info("*** Configuring internet gateway connections\n")
-        # Connect some authorities to the internet gateway AP
-        for i in range(min(2, num_authorities)):  # Connect first 2 authorities to gateway
-            net.addLink(authorities[i], ap_inet)
+        # Connect first authority to the internet gateway host via wired link
+        net.addLink(authorities[0], gateway_host)
 
     # Configure mobility if enabled
     if enable_mobility:
@@ -557,24 +241,35 @@ def configure_internet_access(
         
     info("*** Configuring internet access for mesh nodes\n")
     
-    # Configure routing for mesh nodes to reach internet via gateway
-    gateway_ip = "10.0.0.1"  # NAT gateway IP
-    
-    # Add default routes to all mesh nodes for internet connectivity
+    # Register authorities with bridge for HTTP API access
     for auth in authorities:
-        auth.cmd(f"ip route add default via {gateway_ip}")
         bridge.register_authority(auth)
-        
-    for client in clients:
-        client.cmd(f"ip route add default via {gateway_ip}")
     
-    # Start bridge service
-    bridge.start_bridge_server()
+    # The NAT routing is automatically configured by mn-wifi's addNAT method
+    # which sets default routes for all stations in the network
+    info("*** NAT routing configured automatically by mn-wifi\n")
+    
+    # Enable IP forwarding on gateway host if needed
+    gateway_nodes = [node for node in net.hosts if node.name == 'gw-host']
+    if gateway_nodes:
+        gateway_host = gateway_nodes[0]
+        gateway_host.cmd('sysctl -w net.ipv4.ip_forward=1')
+        info(f"*** IP forwarding enabled on {gateway_host.name}\n")
+    
+    # Start bridge service on gateway host
+    gateway_nodes = [node for node in net.hosts if node.name == 'gw-host']
+    gateway_host = gateway_nodes[0] if gateway_nodes else None
+    bridge.start_bridge_server(gateway_host)
 
+
+# ---------------------------------------------------------------------------
+# Demo account setup  -------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def setup_mesh_accounts(
-    clients: List[Client], 
-    authorities: List[WiFiAuthority]
+    clients: List[Client],
+    authorities: List[WiFiAuthority],
+    bridge: Optional[MeshInternetBridge] = None,
 ) -> None:
     """Setup demo accounts for mesh network testing.
     
@@ -613,82 +308,25 @@ def setup_mesh_accounts(
         client.state.pending_transfer = None
         client.state.sent_certificates = []
         client.state.received_certificates = {}
-    
+        
+    # ------------------------------------------------------------------
+    # Update bridge cache so /authorities shows balances
+    # ------------------------------------------------------------------
+    if bridge is not None:
+        for auth in authorities:
+            bridge.register_authority(auth)
+
     info("*** Demo accounts configured\n")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments.
-    
-    Returns:
-        Parsed command line arguments
-    """
-    parser = argparse.ArgumentParser(
-        description="Enhanced FastPay IEEE 802.11s Mesh Network Demo with Internet Gateway",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
-    )
-    
-    parser.add_argument(
-        "--authorities", "-a",
-        type=int, default=5,
-        help="Number of authority nodes (default: 5)"
-    )
-    
-    parser.add_argument(
-        "--clients", "-c",
-        type=int, default=3,
-        help="Number of client nodes (default: 3)"
-    )
-    
-    parser.add_argument(
-        "--mesh-id", "-m",
-        type=str, default="fastpay-mesh",
-        help="Mesh network identifier (default: fastpay-mesh)"
-    )
-    
-    parser.add_argument(
-        "--internet", "-i",
-        action="store_true",
-        help="Enable internet gateway bridge"
-    )
-    
-    parser.add_argument(
-        "--gateway-port", "-g",
-        type=int, default=8080,
-        help="Gateway HTTP bridge port (default: 8080)"
-    )
-    
-    parser.add_argument(
-        "--mobility",
-        action="store_true",
-        help="Enable advanced mobility models"
-    )
-    
-    parser.add_argument(
-        "--plot", "-p",
-        action="store_true",
-        help="Enable network visualization"
-    )
-    
-    parser.add_argument(
-        "--logs", "-l",
-        action="store_true",
-        help="Open xterm for each node"
-    )
-    
-    parser.add_argument(
-        "--no-security",
-        action="store_true",
-        help="Disable mesh security (not recommended)"
-    )
-    
-    return parser.parse_args()
+# ---------------------------------------------------------------------------
+# No local CLI parsing – we rely on demoCommon.parse_mesh_internet_args -----
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
     """Main entry point for the enhanced mesh demo."""
-    args = parse_args()
+    args = parse_mesh_internet_args()
     setLogLevel("info")
     
     info(f"🚀 Enhanced FastPay IEEE 802.11s Mesh Network Demo\n")
@@ -732,7 +370,7 @@ def main() -> None:
             client.start_fastpay_services()
         
         # Setup demo accounts
-        setup_mesh_accounts(clients, authorities)
+        setup_mesh_accounts(clients, authorities, bridge)
         
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")
