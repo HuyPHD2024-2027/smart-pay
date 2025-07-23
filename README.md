@@ -13,16 +13,11 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
 * Root privileges (for network namespaces)
 * Mininet-WiFi 2.4.0+ — install via:
   ```bash
-  sudo apt-get install git
-  git clone https://github.com/intrig-unicamp/mininet-wifi
+  git clone https://github.com/HuyPHD2024-2027/smart-pay.git
+  mv smart-pay mininet-wifi
   cd mininet-wifi
-  sudo util/install.sh -Wlnfv
+  sudo util/install.sh -Wln1
   ```
-* Project dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
-
 ---
 
 ## 3  Quick Demo (5 min)
