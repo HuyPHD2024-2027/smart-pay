@@ -750,6 +750,31 @@ function wpan_tools {
     popd
 }
 
+function blockchain_deps {
+    echo "Installing blockchain dependencies..."
+    
+    # Install Python packages for Web3
+    $install python3-pip
+    sudo pip3 install web3>=6.15.1 \
+                      eth-account==0.9.0 \
+                      eth-utils>=2.3.1 \
+                      eth-abi>=4.2.1 \
+                      eth-typing>=3.5.2 \
+                      cryptography>=41.0.8 \
+                      hexbytes>=0.3.1 \
+                      python-dotenv>=1.0.0
+
+    # Create services directory if it doesn't exist
+    sudo mkdir -p $BUILD_DIR/services
+
+    # Copy blockchain client
+    echo "Copying blockchain client to services directory..."
+    sudo cp $BUILD_DIR/mininet-web/backend/app/services/blockchain_client.py $BUILD_DIR/services/
+    sudo cp -r $BUILD_DIR/mininet-web/backend/app/abis $BUILD_DIR/services/
+
+    echo "Blockchain dependencies installed successfully"
+}
+
 function all {
     if [ "$DIST" = "Fedora" ]; then
         printf "\nFedora 18+ support (still work in progress):\n"
@@ -816,7 +841,7 @@ function vm_clean {
 }
 
 function usage {
-    printf '\nUsage: %s [-abBcdEfhiklmMnNOpPrStvVxy03]\n\n' $(basename $0) >&2
+    printf '\nUsage: %s [-abBcdEfhiklmMnNOpPrStvVxy013]\n\n' $(basename $0) >&2
 
     printf 'This install script attempts to install useful packages\n' >&2
     printf 'for Mininet. It should (hopefully) work on Ubuntu 11.10+\n' >&2
@@ -825,6 +850,7 @@ function usage {
     printf 'specific installation function in this script.\n\n' >&2
 
     printf 'options:\n' >&2
+    printf -- ' -1: install blockchain/smart contract dependencies\n' >&2
     printf -- ' -a: (default) install (A)ll packages - good luck!\n' >&2
     printf -- ' -B: install B.A.T.M.A.N\n' >&2
     printf -- ' -d: (D)elete some sensitive files from a VM image\n' >&2
@@ -865,6 +891,7 @@ else
     while getopts 'aBdeEfhiklmMnNoOPrSstvWxz036' OPTION
     do
       case $OPTION in
+      1)    blockchain_deps;;
       a)    all;;
       B)    batman;;
       d)    vm_clean;;
