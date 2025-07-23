@@ -112,6 +112,14 @@ mn_wifi/examples/p4/__init__.py
 mn_wifi/examples/p4/ap-runtime.json
 mn_wifi/examples/p4/basic.json
 mn_wifi/examples/p4/p4.py
+mn_wifi/services/__init__.py
+mn_wifi/services/blockchain_client.py
+mn_wifi/services/abis/ERC20.json
+mn_wifi/services/abis/MeshPayAuthorities.json
+mn_wifi/services/abis/MeshPayMVP.json
+mn_wifi/services/abis/__init__.py
+mn_wifi/services/core/__init__.py
+mn_wifi/services/core/config.py
 mn_wifi/sixLoWPAN/__init__.py
 mn_wifi/sixLoWPAN/clean.py
 mn_wifi/sixLoWPAN/link.py

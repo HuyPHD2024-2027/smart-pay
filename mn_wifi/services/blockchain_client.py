@@ -221,7 +221,7 @@ class BlockchainClient:
         
         try:
             # Get total accounts
-            total_accounts = self.meshpay_contract.functions.totalAccounts().call()
+            total_accounts = self.meshpay_contract.functions.getRegisteredAccounts().call()
             
             # Get total balances for each token
             total_token_balances = {}
@@ -229,8 +229,8 @@ class BlockchainClient:
             
             for token_symbol, token_config in SUPPORTED_TOKENS.items():
                 token_address = Web3.to_checksum_address(token_config['address'])
-                total_balance_wei = self.meshpay_contract.functions.totalBalance(token_address).call()
-                total_balance = self._wei_to_human(total_balance_wei, token_config['decimals'])
+                # Note: totalBalance function was removed, so we'll calculate from individual accounts
+                total_balance = "0"
                 
                 if token_config['is_native']:
                     total_native_balance = total_balance
@@ -238,7 +238,7 @@ class BlockchainClient:
                     total_token_balances[token_symbol] = total_balance
             
             return ContractStats(
-                total_accounts=total_accounts,
+                total_accounts=len(total_accounts),
                 total_native_balance=total_native_balance,
                 total_token_balances=total_token_balances
             )
@@ -258,6 +258,110 @@ class BlockchainClient:
         except Exception as e:
             logger.error(f"Failed to check registration for {address}: {e}")
             return False
+    
+    async def get_registered_accounts(self) -> List[str]:
+        """Get all registered account addresses from the blockchain."""
+        if not self.meshpay_contract:
+            logger.error("FastPay contract not initialized")
+            return []
+        
+        try:
+            accounts = self.meshpay_contract.functions.getRegisteredAccounts().call()
+            return [Web3.to_checksum_address(account) for account in accounts]
+        except Exception as e:
+            logger.error(f"Failed to get registered accounts: {e}")
+            return []
+    
+    async def get_account_balance(self, account_address: str, token_address: str) -> int:
+        """Get account balance for a specific token.
+        
+        Args:
+            account_address: The account address
+            token_address: The token address (use NATIVE_TOKEN for XTZ)
+            
+        Returns:
+            Balance in wei
+        """
+        if not self.meshpay_contract:
+            logger.error("FastPay contract not initialized")
+            return 0
+        
+        try:
+            account_address = Web3.to_checksum_address(account_address)
+            token_address = Web3.to_checksum_address(token_address)
+            
+            balance = self.meshpay_contract.functions.getAccountBalance(
+                account_address, token_address
+            ).call()
+            
+            return balance
+        except Exception as e:
+            logger.error(f"Failed to get balance for {account_address} token {token_address}: {e}")
+            return 0
+    
+    async def sync_all_accounts(self) -> Dict[str, Dict[str, int]]:
+        """Sync all registered accounts with their balances for all supported tokens.
+        
+        Returns:
+            Dictionary mapping account addresses to their token balances
+        """
+        if not self.meshpay_contract:
+            logger.error("FastPay contract not initialized")
+            return {}
+        
+        try:
+            # Get all registered accounts
+            registered_accounts = await self.get_registered_accounts()
+            logger.info(f"Found {len(registered_accounts)} registered accounts on blockchain")
+            
+            # Sync each account
+            all_accounts_data = {}
+            for account_address in registered_accounts:
+                account_data = await self._sync_single_account(account_address)
+                if account_data:
+                    all_accounts_data[account_address] = account_data
+            
+            logger.info(f"Successfully synced {len(all_accounts_data)} accounts")
+            return all_accounts_data
+            
+        except Exception as e:
+            logger.error(f"Error syncing all accounts from blockchain: {e}")
+            return {}
+    
+    async def _sync_single_account(self, account_address: str) -> Optional[Dict[str, int]]:
+        """Sync a single account's state from blockchain.
+        
+        Args:
+            account_address: The account address to sync
+            
+        Returns:
+            Dictionary mapping token addresses to balances, or None if failed
+        """
+        try:
+            # Get account info from blockchain
+            account_info = await self.get_account_info(account_address)
+            
+            if not account_info or not account_info.is_registered:
+                logger.warning(f"Account {account_address} not registered on blockchain")
+                return None
+
+            # Get balances for all supported tokens
+            balances = {}
+            for token_symbol, token_config in SUPPORTED_TOKENS.items():
+                token_address = token_config['address']
+                if token_config['is_native']:
+                    # Use NATIVE_TOKEN address for XTZ
+                    token_address = '0x0000000000000000000000000000000000000000'
+                
+                balance = await self.get_account_balance(account_address, token_address)
+                balances[token_address] = balance
+
+            logger.debug(f"Synced account {account_address} with {len(balances)} token balances")
+            return balances
+
+        except Exception as e:
+            logger.error(f"Error syncing account {account_address}: {e}")
+            return None
     
     async def get_recent_events(self, event_name: str, from_block: int = None, limit: int = 100) -> List[Dict]:
         """Get recent contract events."""
@@ -320,9 +424,9 @@ class BlockchainClient:
                 
                 if self.meshpay_contract:
                     # Test contract call
-                    total_accounts = self.meshpay_contract.functions.totalAccounts().call()
+                    registered_accounts = self.meshpay_contract.functions.getRegisteredAccounts().call()
                     health_status['meshpay_contract'] = True
-                    health_status['total_accounts'] = total_accounts
+                    health_status['total_accounts'] = len(registered_accounts)
                     
         except Exception as e:
             health_status['error'] = str(e)

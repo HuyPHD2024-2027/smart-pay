@@ -263,60 +263,8 @@ def configure_internet_access(
 
 
 # ---------------------------------------------------------------------------
-# Demo account setup  -------------------------------------------------------
+# No local CLI parsing – we rely on demoCommon.parse_mesh_internet_args -----
 # ---------------------------------------------------------------------------
-
-def setup_mesh_accounts(
-    clients: List[Client],
-    authorities: List[WiFiAuthority],
-    bridge: Optional[MeshInternetBridge] = None,
-) -> None:
-    """Setup demo accounts for mesh network testing.
-    
-    Args:
-        clients: List of mesh clients
-        authorities: List of mesh authorities
-    """
-    info("*** Setting up mesh demo accounts\n")
-    
-    # Demo balances for testing
-    demo_balances = {client.name: 1000 for client in clients}
-    
-    # Configure authorities with demo accounts
-    for auth in authorities:
-        for user, balance in demo_balances.items():
-            auth.state.accounts[user] = AccountOffchainState(
-                address=user,
-                balance=balance,
-                sequence_number=0,
-                last_update=time.time(),
-                pending_confirmation=SignedTransferOrder(
-                    order_id=uuid4(),
-                    transfer_order=None,
-                    authority_signature={},
-                    timestamp=time.time()
-                ),
-                confirmed_transfers={},
-            )
-    
-    # Configure clients with demo state
-    for client in clients:
-        client.state.secret = KeyPair("secret-placeholder")
-        client.state.committee = authorities
-        client.state.balance = demo_balances[client.name]
-        client.state.sequence_number = 0
-        client.state.pending_transfer = None
-        client.state.sent_certificates = []
-        client.state.received_certificates = {}
-        
-    # ------------------------------------------------------------------
-    # Update bridge cache so /authorities shows balances
-    # ------------------------------------------------------------------
-    if bridge is not None:
-        for auth in authorities:
-            bridge.register_authority(auth)
-
-    info("*** Demo accounts configured\n")
 
 
 def main() -> None:
@@ -364,9 +312,7 @@ def main() -> None:
         for client in clients:
             client.start_fastpay_services()
         
-        # Setup demo accounts
-        setup_mesh_accounts(clients, authorities, bridge)
-        
+
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")
         time.sleep(5)

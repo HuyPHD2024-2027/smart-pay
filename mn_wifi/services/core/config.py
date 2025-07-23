@@ -3,10 +3,9 @@ Configuration management for MeshPay backend.
 """
 import os
 from typing import List, Optional, Dict
-from pydantic_settings import BaseSettings
 from pydantic import field_validator, Field
 
-class Settings(BaseSettings):
+class Settings():
     """Application settings loaded from environment variables."""
     
     # Application Configuration
@@ -101,6 +100,9 @@ class Settings(BaseSettings):
     network_scan_range: str = os.getenv("NETWORK_SCAN_RANGE", "192.168.1.0/24")
     mesh_bridge_url: str = os.getenv("MESH_BRIDGE_URL", "http://192.168.1.142:8080")
     mesh_timeout: float = os.getenv("MESH_TIMEOUT", 10.0)
+    
+    # Blockchain sync configuration
+    blockchain_sync_interval: int = os.getenv("BLOCKCHAIN_SYNC_INTERVAL", 60)  # seconds
     
     @field_validator('meshpay_contract_address', 'meshpay_authority_contract_address', 
              'usdt_contract_address', 'usdc_contract_address')

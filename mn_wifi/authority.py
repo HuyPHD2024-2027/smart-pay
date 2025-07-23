@@ -8,8 +8,6 @@ import time
 from queue import Queue
 from typing import Any, Dict, List, Optional, Set, Protocol
 from uuid import UUID, uuid4
-from web3 import Web3
-from eth_typing import Address as EthAddress
 
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
@@ -43,8 +41,8 @@ from mn_wifi.wifiDirect import WiFiDirectTransport
 
 from mn_wifi.metrics import MetricsCollector
 from mn_wifi.authorityLogger import AuthorityLogger
-from mn_wifi.services.abis import MeshPayABI, MeshPayAuthoritiesABI, ERC20ABI 
-from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
+from mn_wifi.services.blockchain_client import blockchain_client
+from mn_wifi.services.core.config import settings
 
 class WiFiAuthority(Station):
     """Authority node that runs on mininet-wifi host, inheriting from Station."""
@@ -53,8 +51,6 @@ class WiFiAuthority(Station):
         self,
         name: str,
         committee_members: Set[str],
-        blockchain_rpc: str,
-        meshpay_contract_address: str,
         shard_assignments: Optional[Set[str]] = None,
         ip: str = '10.0.0.1/8',
         port: int = 8080,
@@ -89,13 +85,8 @@ class WiFiAuthority(Station):
         # Initialize the Station base class
         super().__init__(name, **default_params)
 
-        # Add blockchain connection
-        self.w3 = Web3(Web3.HTTPProvider(blockchain_rpc))
-        self.meshpay_contract = self.w3.eth.contract(
-            address=meshpay_contract_address,
-            abi=MeshPayABI  
-        )
-        self.supported_tokens = SUPPORTED_TOKENS
+        # Use blockchain client for all blockchain operations
+        self.blockchain_client = blockchain_client
 
         # Create address from mininet-wifi node information
         self.address = Address(
@@ -124,6 +115,7 @@ class WiFiAuthority(Station):
         self._running = False
         self._message_handler_thread: Optional[threading.Thread] = None
         self._sync_thread: Optional[threading.Thread] = None
+        self._blockchain_sync_thread: Optional[threading.Thread] = None
         
         # Configure logging
         self.logger = AuthorityLogger(name)
@@ -176,6 +168,13 @@ class WiFiAuthority(Station):
         )
         self._sync_thread.start()
 
+        # Start blockchain sync thread
+        self._blockchain_sync_thread = threading.Thread(
+            target=self._blockchain_sync_loop,
+            daemon=True,
+        )
+        self._blockchain_sync_thread.start()
+
         self.logger.info(f"Authority {self.name} started successfully")
         return True
     
@@ -192,47 +191,56 @@ class WiFiAuthority(Station):
             self._message_handler_thread.join(timeout=5.0)
         if self._sync_thread:
             self._sync_thread.join(timeout=5.0)
+        if self._blockchain_sync_thread:
+            self._blockchain_sync_thread.join(timeout=5.0)
         self.logger.info(f"Authority {self.name} stopped")
     
-    async def sync_account_from_blockchain(self, account_address: str) -> None:
-        """Sync account state from blockchain."""
+    async def sync_account_from_blockchain(self) -> None:
+        """Sync all registered accounts from blockchain using blockchain client."""
+        try:
+            # Use blockchain client to sync all accounts
+            all_accounts_data = await self.blockchain_client.sync_all_accounts()
+            
+            self.logger.info(f"Found {len(all_accounts_data)} registered accounts on blockchain")
+            
+            # Update local state with blockchain data
+            for account_address, balances in all_accounts_data.items():
+                await self._update_local_account_state(account_address, balances)
+                
+        except Exception as e:
+            self.logger.error(f"Error syncing accounts from blockchain: {e}")
+    
+    async def _update_local_account_state(self, account_address: str, balances: Dict[str, int]) -> None:
+        """Update local account state with blockchain data.
+        
+        Args:
+            account_address: The account address
+            balances: Dictionary mapping token addresses to balances
+        """
         try:
             # Get account info from blockchain
-            account_info = await self.meshpay_contract.functions.getAccountInfo(account_address).call()
-            registered, registration_time, last_redeemed = account_info
-
-            if not registered:
+            account_info = await self.blockchain_client.get_account_info(account_address)
+            
+            if not account_info or not account_info.is_registered:
+                self.logger.warning(f"Account {account_address} not registered on blockchain")
                 return
-
-            # Get balances for all supported tokens
-            balances = {}
-            for token_address in self.supported_tokens.keys():
-                balance = await self.meshpay_contract.functions.getAccountBalance(
-                    account_address, 
-                    token_address
-                ).call()
-                balances[token_address] = balance
 
             # Update or create account state
             if account_address not in self.state.accounts:
                 self.state.accounts[account_address] = AccountOffchainState(
                     address=account_address,
                     balances=balances,
-                    sequence_number=last_redeemed + 1,
                     last_update=time.time(),
-                    pending_confirmation=None,
-                    confirmed_transfers={},
                 )
+                self.logger.info(f"Created new account state for {account_address}")
             else:
                 account = self.state.accounts[account_address]
                 account.balances = balances
-                account.sequence_number = max(account.sequence_number, last_redeemed + 1)
                 account.last_update = time.time()
-
-            self.logger.info(f"Account {account_address} synced from blockchain")
+                self.logger.debug(f"Updated account state for {account_address}")
 
         except Exception as e:
-            self.logger.error(f"Error syncing account {account_address}: {e}")
+            self.logger.error(f"Error updating local account state for {account_address}: {e}")
 
     def get_wireless_interface(self) -> Optional[IntfWireless]:
         """Get the wireless interface for this node.
@@ -336,8 +344,6 @@ class WiFiAuthority(Station):
             # Check if sender account exists and has sufficient balance
             sender_account = self.state.accounts.get(transfer_order.sender)
             if not sender_account:
-                await self.sync_account_from_blockchain(transfer_order.sender)
-                sender_account = self.state.accounts.get(transfer_order.sender)
                 if not sender_account:
                     return TransferResponseMessage(
                         transfer_order=transfer_order,
@@ -578,6 +584,26 @@ class WiFiAuthority(Station):
         """
         return self.performance_metrics.get_stats()
     
+    def trigger_blockchain_sync(self) -> None:
+        """Manually trigger blockchain sync for all registered accounts.
+        
+        This method can be called externally to force a blockchain sync
+        without waiting for the next scheduled interval.
+        """
+        if not self._running:
+            self.logger.warning("Authority not running, cannot trigger blockchain sync")
+            return
+        
+        self.logger.info("Manually triggering blockchain sync")
+        
+        try:
+            import asyncio
+            asyncio.run(self.sync_account_from_blockchain())
+        except Exception as e:
+            self.logger.error(f"Error during manual blockchain sync: {e}")
+        
+        self.logger.info(f"Manual blockchain sync completed for {len(self.state.accounts)} accounts")
+    
     def _validate_transfer_order(self, transfer_order: TransferOrder) -> bool:
         """Validate a transfer order.
         
@@ -730,4 +756,32 @@ class WiFiAuthority(Station):
                     self.sync_with_committee()
             except Exception as e:
                 self.logger.error(f"Error in sync loop: {e}")
-                time.sleep(5) 
+                time.sleep(5)
+    
+    def _blockchain_sync_loop(self) -> None:
+        """Periodic blockchain synchronization loop."""
+        # Default sync interval: 1 minute (60 seconds)
+        sync_interval = getattr(settings, 'blockchain_sync_interval', 60)
+        
+        while self._running:
+            try:
+                # Wait for the sync interval
+                time.sleep(sync_interval)
+                
+                if not self._running:
+                    break
+                
+                # Sync all registered accounts from blockchain
+                try:
+                    # Use asyncio.run to call the async method from sync context
+                    import asyncio
+                    asyncio.run(self.sync_account_from_blockchain())
+                except Exception as e:
+                    self.logger.error(f"Error in blockchain sync cycle: {e}")
+                
+                self.logger.info(f"Completed blockchain sync cycle for {len(self.state.accounts)} accounts")
+                
+            except Exception as e:
+                self.logger.error(f"Error in blockchain sync loop: {e}")
+                # Wait a bit before retrying
+                time.sleep(10) 

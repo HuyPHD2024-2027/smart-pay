@@ -365,7 +365,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         print("\nFastPay Commands:")
         print("  ping <src> <dst> [count]           - ICMP reachability test")
         print("  balance <user>                     - Show user balance across authorities")
-        print("  transfer <sender> <recipient> <amount> - Broadcast transfer order")
+        print("  transfer <sender> <recipient> <token> <amount> - Broadcast transfer order")
         print("  infor <station|all>                - Show station state information")
         print("  voting_power                       - Show voting power of authorities")
         print("  performance <authority>            - Show authority performance metrics")
