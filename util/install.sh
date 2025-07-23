@@ -767,17 +767,6 @@ function blockchain_deps {
                       hexbytes>=0.3.1 \
                       python-dotenv>=1.0.0 \
                       pydantic>=2.5.0
-    
-    # Copy blockchain files
-    if [ -f "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" ]; then
-        sudo cp "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" \
-                "$MININET_DIR/mininet-wifi/services/"
-        sudo cp -r "$MININET_DIR/mininet-web/backend/app/abis/"* \
-                   "$MININET_DIR/mininet-wifi/services/abis/"
-        echo "Blockchain files copied successfully"
-    else
-        echo "Warning: blockchain_client.py not found"
-    fi
 }
 
 function all {
