@@ -18,11 +18,6 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
   cd mininet-wifi
   sudo util/install.sh -Wln1
   ```
-* Project dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
-
 ---
 
 ## 3  Quick Demo (5 min)
