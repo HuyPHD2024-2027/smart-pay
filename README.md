@@ -33,8 +33,11 @@ sudo python3 -m mn_wifi.examples.fastpay_mesh_demo --authorities 5 --clients 3
 ```
 Inside the CLI you can issue FastPay commands such as:
 ```bash
-user1 transfer_via_mesh user2 10
-user2 balance
+transfer user1 user2 100
+broadcast_confirmation user1
+balance user1
+balance user2
+infor auth1
 ```
 
 ---
@@ -51,7 +54,7 @@ Results appear under `evaluation_results_*/` and are summarised in the terminal.
 Expected baseline (50 Authorities, 200 Users):
 | Metric | Median | 95th pct. | Success |
 |--------|--------|-----------|---------|
-| Latency | ≈ 89 ms | ≈ 142 ms | ≈ 97 % |
+| Latency | ≈ 1200 ms | ≈ 1500 ms | ≈ 97 % |
 
 ---
 
