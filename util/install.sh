@@ -753,8 +753,11 @@ function wpan_tools {
 function blockchain_deps {
     echo "Installing blockchain dependencies..."
     
-    # Install Python packages for Web3
-    $install python3-pip
+    # Create necessary directories
+    sudo mkdir -p $MININET_DIR/mininet-wifi/services
+    sudo mkdir -p $MININET_DIR/mininet-wifi/services/abis
+    
+    # Install Python dependencies
     sudo pip3 install web3>=6.15.1 \
                       eth-account==0.9.0 \
                       eth-utils>=2.3.1 \
@@ -762,17 +765,19 @@ function blockchain_deps {
                       eth-typing>=3.5.2 \
                       cryptography>=41.0.8 \
                       hexbytes>=0.3.1 \
-                      python-dotenv>=1.0.0
-
-    # Create services directory if it doesn't exist
-    sudo mkdir -p $BUILD_DIR/services
-
-    # Copy blockchain client
-    echo "Copying blockchain client to services directory..."
-    sudo cp $BUILD_DIR/mininet-web/backend/app/services/blockchain_client.py $BUILD_DIR/services/
-    sudo cp -r $BUILD_DIR/mininet-web/backend/app/abis $BUILD_DIR/services/
-
-    echo "Blockchain dependencies installed successfully"
+                      python-dotenv>=1.0.0 \
+                      pydantic>=2.5.0
+    
+    # Copy blockchain files
+    if [ -f "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" ]; then
+        sudo cp "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" \
+                "$MININET_DIR/mininet-wifi/services/"
+        sudo cp -r "$MININET_DIR/mininet-web/backend/app/abis/"* \
+                   "$MININET_DIR/mininet-wifi/services/abis/"
+        echo "Blockchain files copied successfully"
+    else
+        echo "Warning: blockchain_client.py not found"
+    fi
 }
 
 function all {
