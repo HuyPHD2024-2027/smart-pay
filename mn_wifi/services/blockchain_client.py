@@ -12,39 +12,8 @@ from dataclasses import dataclass
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-
-_ABI_DIR: Path = Path(__file__).resolve().parent.parent / "abis"
-
-def _load_abi(filename: str) -> List[Dict[str, Any]]:
-    """Return ABI list from the given JSON file.
-
-    The JSON may either be a raw list (standard Hardhat export) or an object
-    with an ``abi`` field (solidity-coverage & Foundry style). The helper
-    normalises both cases and always returns the ABI array.
-    """
-
-    with open(_ABI_DIR / filename, "r", encoding="utf-8") as fp:
-        data = json.load(fp)
-
-    if isinstance(data, list):  # Hardhat style export
-        return data
-
-    # Object export: { "abi": [...] }
-    if "abi" in data and isinstance(data["abi"], list):
-        return data["abi"]
-
-    raise ValueError(f"Unsupported ABI format in {_ABI_DIR / filename}")
-
-
-# Expose ABIs as module-level constants (preserves previous variable names)
-MeshPayABI: List[Dict[str, Any]] = _load_abi("MeshPayMVP.json")
-MeshPayAuthoritiesABI: List[Dict[str, Any]] = _load_abi("MeshPayAuthorities.json")
-ERC20ABI: List[Dict[str, Any]] = _load_abi("ERC20.json")
-
-# ---------------------------------------------------------------------------
-
-from ..core.config import settings, SUPPORTED_TOKENS
-
+from mn_wifi.services.abis import MeshPayABI, MeshPayAuthoritiesABI, ERC20ABI
+from mn_wifi.services.core.config import settings
 logger = logging.getLogger(__name__)
 
 @dataclass

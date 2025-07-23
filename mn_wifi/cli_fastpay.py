@@ -40,6 +40,7 @@ from mn_wifi.baseTypes import (
 from mn_wifi.cli import CLI
 from mn_wifi.client import Client
 from mn_wifi.node import Station
+from mn_wifi.services.core.config import SUPPORTED_TOKENS
 
 # --------------------------------------------------------------------------------------
 # Public helpers
@@ -183,7 +184,12 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         sender = args[0]
         recipient = args[1]
         try:
-            amount = int(args[2])
+            token_type = args[2]
+        except IndexError:
+            print("❌ Token type is required")
+            return
+        try:
+            amount = int(args[3])
         except ValueError:
             print("❌ Amount must be an integer")
             return
@@ -193,9 +199,10 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
             print(f"❌ Unknown client '{sender}'")
             return
 
-        print(f"🚀 {sender} → {recipient}  amount={amount}")
+        print(f"🚀 {sender} → {recipient} {amount} {token_type} ")
         try:
-            success = client.transfer(recipient, amount)
+            token = SUPPORTED_TOKENS[tokenSymbol]
+            success = client.transfer(recipient, token.address, amount)
             if success:
                 print("✅ Transfer request broadcast to authorities – awaiting quorum")
             else:

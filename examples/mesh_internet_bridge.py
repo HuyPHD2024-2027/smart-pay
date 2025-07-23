@@ -21,6 +21,7 @@ from mn_wifi.client import Client
 import dataclasses
 from uuid import UUID
 from enum import Enum
+from mn_wifi.baseTypes import SUPPORTED_TOKENS
 
 __all__ = ["MeshInternetBridge"]
 
@@ -65,10 +66,15 @@ class MeshInternetBridge:
         sender = body.get("sender")
         recipient = body.get("recipient")
         amount = body.get("amount")
+        token_symbol = body.get("token", "WTZ")
+        token = SUPPORTED_TOKENS.get(token_symbol)
 
         # Basic sanity checks --------------------------------------------------
         if sender is None or recipient is None or amount is None:
             return {"success": False, "error": "missing_fields", "required": ["sender", "recipient", "amount"]}
+        
+        if token is None:
+            return {"success": False, "error": f"unknown_token: {token_symbol}"}
 
         try:
             amount_int = int(amount)
@@ -83,7 +89,7 @@ class MeshInternetBridge:
         # Execute the transfer using the built-in FastPay helper -------------
         # ------------------------------------------------------------------
         try:
-            ok = client.transfer(recipient, amount_int)
+            ok = client.transfer(recipient, token.address, amount_int)
             return {"success": bool(ok), "sender": sender, "recipient": recipient, "amount": amount_int}
         except Exception as exc:  # pragma: no cover – defensive guard
             return {"success": False, "error": str(exc)}

@@ -319,11 +319,6 @@ def setup_mesh_accounts(
     info("*** Demo accounts configured\n")
 
 
-# ---------------------------------------------------------------------------
-# No local CLI parsing – we rely on demoCommon.parse_mesh_internet_args -----
-# ---------------------------------------------------------------------------
-
-
 def main() -> None:
     """Main entry point for the enhanced mesh demo."""
     args = parse_mesh_internet_args()

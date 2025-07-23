@@ -8,6 +8,8 @@ import time
 from queue import Queue
 from typing import Any, Dict, List, Optional, Set, Protocol
 from uuid import UUID, uuid4
+from web3 import Web3
+from eth_typing import Address as EthAddress
 
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
@@ -41,7 +43,8 @@ from mn_wifi.wifiDirect import WiFiDirectTransport
 
 from mn_wifi.metrics import MetricsCollector
 from mn_wifi.authorityLogger import AuthorityLogger
-
+from mn_wifi.services.abis import MeshPayABI, MeshPayAuthoritiesABI, ERC20ABI 
+from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
 
 class WiFiAuthority(Station):
     """Authority node that runs on mininet-wifi host, inheriting from Station."""
@@ -50,6 +53,8 @@ class WiFiAuthority(Station):
         self,
         name: str,
         committee_members: Set[str],
+        blockchain_rpc: str,
+        meshpay_contract_address: str,
         shard_assignments: Optional[Set[str]] = None,
         ip: str = '10.0.0.1/8',
         port: int = 8080,
@@ -83,7 +88,15 @@ class WiFiAuthority(Station):
         
         # Initialize the Station base class
         super().__init__(name, **default_params)
-        
+
+        # Add blockchain connection
+        self.w3 = Web3(Web3.HTTPProvider(blockchain_rpc))
+        self.meshpay_contract = self.w3.eth.contract(
+            address=meshpay_contract_address,
+            abi=MeshPayABI  
+        )
+        self.supported_tokens = SUPPORTED_TOKENS
+
         # Create address from mininet-wifi node information
         self.address = Address(
             node_id=name,
@@ -181,6 +194,46 @@ class WiFiAuthority(Station):
             self._sync_thread.join(timeout=5.0)
         self.logger.info(f"Authority {self.name} stopped")
     
+    async def sync_account_from_blockchain(self, account_address: str) -> None:
+        """Sync account state from blockchain."""
+        try:
+            # Get account info from blockchain
+            account_info = await self.meshpay_contract.functions.getAccountInfo(account_address).call()
+            registered, registration_time, last_redeemed = account_info
+
+            if not registered:
+                return
+
+            # Get balances for all supported tokens
+            balances = {}
+            for token_address in self.supported_tokens.keys():
+                balance = await self.meshpay_contract.functions.getAccountBalance(
+                    account_address, 
+                    token_address
+                ).call()
+                balances[token_address] = balance
+
+            # Update or create account state
+            if account_address not in self.state.accounts:
+                self.state.accounts[account_address] = AccountOffchainState(
+                    address=account_address,
+                    balances=balances,
+                    sequence_number=last_redeemed + 1,
+                    last_update=time.time(),
+                    pending_confirmation=None,
+                    confirmed_transfers={},
+                )
+            else:
+                account = self.state.accounts[account_address]
+                account.balances = balances
+                account.sequence_number = max(account.sequence_number, last_redeemed + 1)
+                account.last_update = time.time()
+
+            self.logger.info(f"Account {account_address} synced from blockchain")
+
+        except Exception as e:
+            self.logger.error(f"Error syncing account {account_address}: {e}")
+
     def get_wireless_interface(self) -> Optional[IntfWireless]:
         """Get the wireless interface for this node.
         
@@ -261,7 +314,7 @@ class WiFiAuthority(Station):
         """
         return self.transport.send_message(message, peer_address)
     
-    def handle_transfer_order(self, transfer_order: TransferOrder) -> TransferResponseMessage:
+    async def handle_transfer_order(self, transfer_order: TransferOrder) -> TransferResponseMessage:
         """Handle transfer order from client.
         
         Args:
@@ -283,18 +336,22 @@ class WiFiAuthority(Station):
             # Check if sender account exists and has sufficient balance
             sender_account = self.state.accounts.get(transfer_order.sender)
             if not sender_account:
-                return TransferResponseMessage(
-                    transfer_order=transfer_order,
-                    success=False,
-                    error_message="Sender account not found",
-                    authority_signature=self.state.authority_signature
-                )
+                await self.sync_account_from_blockchain(transfer_order.sender)
+                sender_account = self.state.accounts.get(transfer_order.sender)
+                if not sender_account:
+                    return TransferResponseMessage(
+                        transfer_order=transfer_order,
+                        success=False,
+                        error_message="Sender account not found",
+                        authority_signature=self.state.authority_signature
+                    )
             
-            if sender_account.balance < transfer_order.amount:
+            token_balance = sender_account.balances.get(transfer_order.token_address, 0)
+            if token_balance < transfer_order.amount:
                 return TransferResponseMessage(
                     transfer_order=transfer_order,
                     success=False,
-                    error_message="Insufficient balance",
+                    error_message=f"Insufficient balance for token {transfer_order.token_address}",
                     authority_signature=self.state.authority_signature
                 )
             
@@ -310,7 +367,7 @@ class WiFiAuthority(Station):
             if transfer_order.recipient not in self.state.accounts:
                 self.state.accounts[transfer_order.recipient] = AccountOffchainState(
                     address=transfer_order.recipient,
-                    balance=0,
+                    balances={},
                     sequence_number=0,
                     last_update=time.time(),
                     pending_confirmation=SignedTransferOrder(
@@ -383,7 +440,7 @@ class WiFiAuthority(Station):
                 transfer.sender,
                 AccountOffchainState(
                     address=transfer.sender,
-                    balance=0,
+                    balances={},
                     sequence_number=0,
                     last_update=time.time(),
                     pending_confirmation=None,
@@ -394,7 +451,7 @@ class WiFiAuthority(Station):
                 transfer.recipient,
                 AccountOffchainState(
                     address=transfer.recipient,
-                    balance=0,
+                    balances={},
                     sequence_number=0,
                     last_update=time.time(),
                     pending_confirmation=None,
@@ -403,11 +460,11 @@ class WiFiAuthority(Station):
             )
 
             # Deduct / credit
-            sender.balance -= transfer.amount
+            sender.balances[transfer.token_address] -= transfer.amount
             sender.sequence_number += 1
             sender.last_update = time.time()
 
-            recipient.balance += transfer.amount
+            recipient.balances[transfer.token_address] += transfer.amount
             recipient.last_update = time.time()
             # ------------------------------------------------------------------
 
@@ -511,7 +568,7 @@ class WiFiAuthority(Station):
             Account balance or None if account not found
         """
         account = self.state.accounts.get(account_address)
-        return account.balance if account else None
+        return account.balances if account else None
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics.

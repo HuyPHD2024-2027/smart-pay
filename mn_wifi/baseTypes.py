@@ -51,6 +51,7 @@ class TransferOrder:
     order_id: UUID
     sender: str
     recipient: str
+    token_address: str
     amount: int
     sequence_number: int
     timestamp: float
@@ -156,7 +157,7 @@ class AccountOffchainState:
     """Account state in the FastPay system."""
     
     address: str
-    balance: int
+    balances: Dict[str, int]  # Map of token_address -> balance
     # Sequence number tracking spending actions.
     sequence_number: int
     last_update: float
@@ -170,9 +171,13 @@ class AccountOffchainState:
         if self.last_update == 0:
             self.last_update = time.time()
 
-        # Ensure *confirmed_transfers* is always a dict for ease of use.
+        # Ensure *confirmed_transfers* is always a dict
         if self.confirmed_transfers is None:
             self.confirmed_transfers = {}
+
+        # Ensure *balances* is always a dict
+        if self.balances is None:
+            self.balances = {}
 
 
 @dataclass
