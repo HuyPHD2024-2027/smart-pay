@@ -13,7 +13,7 @@ from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
 from mn_wifi.services.abis import MeshPayABI, MeshPayAuthoritiesABI, ERC20ABI
-from mn_wifi.services.core.config import settings
+from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -65,7 +65,7 @@ class BlockchainClient:
                 raise ConnectionError(f"Failed to connect to {settings.rpc_url}")
             
             logger.info(f"Connected to blockchain: {settings.chain_name} (Chain ID: {settings.chain_id})")
-            
+
             # Initialize FastPay contract if address is configured
             if settings.meshpay_contract_address:
                 self.meshpay_contract = self.w3.eth.contract(
@@ -73,6 +73,9 @@ class BlockchainClient:
                     abi=MeshPayABI
                 )
                 logger.info(f"FastPay contract initialized at {settings.meshpay_contract_address}")
+            else:
+                logger.warning("MESHPAY_CONTRACT_ADDRESS not configured. FastPay contract will not be available.")
+                logger.info("To enable FastPay functionality, set MESHPAY_CONTRACT_ADDRESS environment variable")
             
             # Initialize backend account if private key is provided
             if settings.backend_private_key:

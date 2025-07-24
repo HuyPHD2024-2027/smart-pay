@@ -2,8 +2,25 @@
 Configuration management for MeshPay backend.
 """
 import os
+from pathlib import Path
 from typing import List, Optional, Dict
 from pydantic import field_validator, Field
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+env_path = Path(__file__).parent.parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"Loaded environment from: {env_path}")
+else:
+    print(f"No .env file found at: {env_path}")
+    # Try to load from current directory
+    current_env = Path.cwd() / ".env"
+    if current_env.exists():
+        load_dotenv(current_env)
+        print(f"Loaded environment from: {current_env}")
+    else:
+        print(f"No .env file found at: {current_env}")
 
 class Settings():
     """Application settings loaded from environment variables."""

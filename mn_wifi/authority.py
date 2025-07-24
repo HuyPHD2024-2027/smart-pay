@@ -41,7 +41,7 @@ from mn_wifi.wifiDirect import WiFiDirectTransport
 
 from mn_wifi.metrics import MetricsCollector
 from mn_wifi.authorityLogger import AuthorityLogger
-from mn_wifi.services.blockchain_client import blockchain_client
+from mn_wifi.services.blockchain_client import BlockchainClient
 from mn_wifi.services.core.config import settings
 
 class WiFiAuthority(Station):
@@ -85,8 +85,8 @@ class WiFiAuthority(Station):
         # Initialize the Station base class
         super().__init__(name, **default_params)
 
-        # Use blockchain client for all blockchain operations
-        self.blockchain_client = blockchain_client
+        # Use the global blockchain client instance
+        self.blockchain_client = BlockchainClient()
 
         # Create address from mininet-wifi node information
         self.address = Address(
@@ -231,6 +231,9 @@ class WiFiAuthority(Station):
                     address=account_address,
                     balances=balances,
                     last_update=time.time(),
+                    pending_confirmation=None,
+                    confirmed_transfers={},
+                    sequence_number=0,
                 )
                 self.logger.info(f"Created new account state for {account_address}")
             else:
