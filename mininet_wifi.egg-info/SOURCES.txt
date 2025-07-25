@@ -69,7 +69,6 @@ mn_wifi/examples/demoCommon.py
 mn_wifi/examples/demoWifiDirect.py
 mn_wifi/examples/fastpay_demo.py
 mn_wifi/examples/fastpay_mesh_demo.py
-mn_wifi/examples/fastpay_mesh_internet_demo.py
 mn_wifi/examples/fastpay_p2p_benchmark.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py

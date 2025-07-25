@@ -43,9 +43,15 @@ class Bridge:
     """
 
     def __init__(self, gateway_host: Node_wifi, port: int = 8080) -> None:
+        """Initialize the Bridge server.
+        
+        Args:
+            gateway_host: The gateway host node for mesh network communication
+            port: The port number for the HTTP bridge server (default: 8080)
+        """
         self.port = port
-        self.authorities: Dict[str, Dict[str, Any]] = {}
         self.gateway_host: Optional[Node_wifi] = gateway_host
+        self.authorities: Dict[str, Dict[str, Any]] = {}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
         self.running = False

@@ -54,7 +54,15 @@ from mn_wifi.client import Client
 from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
+<<<<<<< HEAD
 from mn_wifi.bridge import Bridge
+=======
+<<<<<<<< HEAD:examples/fastpay_mesh_internet_demo.py
+from mn_wifi.examples.mesh_internet_bridge import Bridge
+========
+from mn_wifi.bridge import Bridge
+>>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece:examples/meshpay_demo.py
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
 from mn_wifi.examples.demoCommon import (
     open_xterms as _open_xterms,
     close_xterms as _close_xterms,
@@ -62,7 +70,15 @@ from mn_wifi.examples.demoCommon import (
 )
 
 
+<<<<<<< HEAD
 # Bridge moved to separate module (mesh_internet_bridge.py)
+=======
+<<<<<<<< HEAD:examples/fastpay_mesh_internet_demo.py
+# Bridge moved to separate module (mesh_internet_bridge.py)
+========
+# Bridge moved to separate module (bridge.py)
+>>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece:examples/meshpay_demo.py
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
 
 
 def create_mesh_network_with_internet(
@@ -103,7 +119,11 @@ def create_mesh_network_with_internet(
         name = f"auth{i}"
         auth = net.addStation(
             name,
+<<<<<<< HEAD
             cls=WiFiAuthority,  
+=======
+            cls=WiFiAuthority,  # use core authority class
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
             committee_members=committee - {name},
             ip=f"10.0.0.{10 + i}/8",
             port=8000 + i,
@@ -119,7 +139,11 @@ def create_mesh_network_with_internet(
         name = f"user{i}"
         client = net.addStation(
             name,
+<<<<<<< HEAD
             cls=Client,  
+=======
+            cls=Client,  # use core client class
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
             ip=f"10.0.0.{20 + i}/8",
             port=9000 + i,
             # position=[30 + (i * 20), 20, 0],
@@ -136,6 +160,7 @@ def create_mesh_network_with_internet(
         
         # Add host node as internet gateway (replaces access point)
         gateway_host = net.addHost(
+<<<<<<< HEAD
             'gw-host',
             ip='10.0.0.254/8',
             position=[20, 40, 0]
@@ -147,6 +172,23 @@ def create_mesh_network_with_internet(
         # Create mesh-internet bridge service, passing host so HTTP API can
         # reuse host.transfer when /transfer is called.
         bridge = Bridge(gateway_host, port=gateway_port)
+=======
+            'gw',
+            ip='10.0.0.254/8',
+            position=[150, 50, 0]
+        )
+
+        # Add NAT for internet connectivity using the host gateway
+        nat = net.addNAT(name='nat0', connect=gateway_host, ip='10.0.0.1/8')
+        
+        # Create mesh-internet bridge service, passing clients so HTTP API can
+        # reuse client.transfer when /transfer is called.
+<<<<<<<< HEAD:examples/fastpay_mesh_internet_demo.py
+        bridge = Bridge(clients, port=gateway_port)
+========
+        bridge = Bridge(gateway_host, port=gateway_port)
+>>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece:examples/meshpay_demo.py
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
     
     # Configure mesh networking
     info("*** Configuring IEEE 802.11s mesh\n")
@@ -168,9 +210,16 @@ def create_mesh_network_with_internet(
     # Add gateway connection if internet is enabled
     if enable_internet:
         info("*** Configuring internet gateway connections\n")
+<<<<<<< HEAD
         # Connect first authority to the internet gateway host via wired link
         for i in range(1, num_authorities + 1):
             net.addLink(authorities[i-1], gateway_host)
+=======
+        # # Connect first authority to the internet gateway host via wired link
+        for i in range(1, num_authorities + 1):
+            net.addLink(authorities[i-1], gateway_host, cls=TCLink)
+
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
 
     # Configure mobility if enabled
     if enable_mobility:
@@ -189,8 +238,13 @@ def create_mesh_network_with_internet(
     if enable_plot:
         info("*** Plotting mesh network\n")
         net.plotGraph(max_x=200, max_y=150)
+<<<<<<< HEAD
 
     return net, authorities, clients, gateway_host, bridge
+=======
+    
+    return net, authorities, clients, bridge, gateway_host
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
 
 
 def configure_internet_access(
@@ -213,22 +267,35 @@ def configure_internet_access(
     info("*** Configuring internet access for mesh nodes\n")
     
     # Register authorities with bridge for HTTP API access
+<<<<<<< HEAD
     for auth in authorities:
         bridge.register_authority(auth)
+=======
+    # for auth in authorities:
+    #     bridge.register_authority(auth)
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
     
     # The NAT routing is automatically configured by mn-wifi's addNAT method
     # which sets default routes for all stations in the network
     info("*** NAT routing configured automatically by mn-wifi\n")
     
     # Enable IP forwarding on gateway host if needed
+<<<<<<< HEAD
     gateway_nodes = [node for node in net.hosts if node.name == 'gw-host']
+=======
+    gateway_nodes = [node for node in net.hosts if node.name == 'gw']
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
     if gateway_nodes:
         gateway_host = gateway_nodes[0]
         gateway_host.cmd('sysctl -w net.ipv4.ip_forward=1')
         info(f"*** IP forwarding enabled on {gateway_host.name}\n")
     
     # Start bridge service on gateway host
+<<<<<<< HEAD
     gateway_nodes = [node for node in net.hosts if node.name == 'gw-host']
+=======
+    gateway_nodes = [node for node in net.hosts if node.name == 'gw']
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
     gateway_host = gateway_nodes[0] if gateway_nodes else None
     bridge.start_bridge_server(gateway_host)
 
@@ -256,7 +323,11 @@ def main() -> None:
     bridge = None
     try:
         # Create enhanced mesh network with internet gateway
+<<<<<<< HEAD
         net, authorities, clients, gateway_host, bridge = create_mesh_network_with_internet(
+=======
+        net, authorities, clients, bridge, gateway_host = create_mesh_network_with_internet(
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
             num_authorities=args.authorities,
             num_clients=args.clients,
             mesh_id=args.mesh_id,
@@ -271,6 +342,17 @@ def main() -> None:
         info("*** Building enhanced mesh network\n")
         net.build()
         
+<<<<<<< HEAD
+=======
+        info("*** Assigning IPs to wired interfaces for auth-gateway link\n")
+        for i, auth in enumerate(authorities, start=1):
+            auth_ip = f"192.168.100.{i}"
+            gw_ip = f"192.168.100.{10 + i}"  
+
+            auth.setIP(auth_ip + '/24', intf=f'{auth.name}-eth1')
+            gateway_host.setIP(gw_ip + '/24', intf=f'gw-eth{i}')
+
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
         # Configure internet access if enabled
         if args.internet and bridge:
             configure_internet_access(net, authorities, clients, bridge)

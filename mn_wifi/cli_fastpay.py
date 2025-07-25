@@ -85,7 +85,10 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         self.authorities = authorities
         self.clients = clients
         self.gateway_host = gateway_host
+<<<<<<< HEAD
 
+=======
+>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
         # Lookup maps and in-memory bookkeeping helpers
         self._pending_orders: Dict[uuid.UUID, TransferOrder] = {}
         self._quorum_weight = int(len(authorities) * quorum_ratio) + 1
@@ -101,20 +104,12 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
         super().__init__(mn_wifi, stdin=stdin, script=script, cmd=cmd)
 
-    # ---------------------------------------------------------------------
-    # Low-level utilities
-    # ---------------------------------------------------------------------
-
     def _find_node(self, name: str) -> Optional[Station]:
         """Return *any* station (authority or client) with the given *name*."""
         for node in [*self.authorities, *self.clients, self.gateway_host]:
             if node.name == name:
                 return node
         return None
-
-    # ---------------------------------------------------------------------
-    # Public command dispatchers (using do_* convention for Mininet CLI)
-    # ---------------------------------------------------------------------
 
 
     # 1. ------------------------------------------------------------------
@@ -272,10 +267,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         for name, power in voting_power.items():
             print(f"   • {name}: {power:.3f}")
 
-    # ------------------------------------------------------------------
-    # New command – single authority performance stats
-    # ------------------------------------------------------------------
-
+    # 5. ------------------------------------------------------------------
     def do_performance(self, line: str) -> None:  # noqa: D401 – imperative form
         """Print *authority* performance metrics in JSON form.
 
