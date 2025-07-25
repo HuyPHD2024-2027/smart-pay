@@ -61,19 +61,6 @@ from mn_wifi.examples.demoCommon import (
     close_xterms as _close_xterms,
     parse_mesh_internet_args,
 )
-
-
-<<<<<<< HEAD
-# Bridge moved to separate module (mesh_internet_bridge.py)
-=======
-<<<<<<<< HEAD:examples/fastpay_mesh_internet_demo.py
-# Bridge moved to separate module (mesh_internet_bridge.py)
-========
-# Bridge moved to separate module (bridge.py)
->>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece:examples/meshpay_demo.py
->>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
-
-
 def create_mesh_network_with_internet(
     num_authorities: int = 5,
     num_clients: int = 3,
