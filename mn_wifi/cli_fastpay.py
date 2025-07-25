@@ -61,6 +61,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         mn_wifi,
         authorities: List[Station],
         clients: List[Client],
+        gateway_host: str,
         *,
         quorum_ratio: float = 2 / 3,
         stdin=sys.stdin,
@@ -83,7 +84,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
         self.authorities = authorities
         self.clients = clients
-
+        self.gateway_host = gateway_host
         # Lookup maps and in-memory bookkeeping helpers
         self.clients_map: Dict[str, Client] = {c.name: c for c in clients}
         self._pending_orders: Dict[uuid.UUID, TransferOrder] = {}
@@ -100,53 +101,14 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
         super().__init__(mn_wifi, stdin=stdin, script=script, cmd=cmd)
 
-    # ---------------------------------------------------------------------
-    # Low-level utilities
-    # ---------------------------------------------------------------------
-
     def _find_node(self, name: str) -> Optional[Station]:
         """Return *any* station (authority or client) with the given *name*."""
-        for node in [*self.authorities, *self.clients_map.values()]:
+        for node in [*self.authorities, *self.clients_map.values(), self.gateway_host]:
             if node.name == name:
                 return node
         return None
 
-    # ---------------------------------------------------------------------
-    # Public command dispatchers (using do_* convention for Mininet CLI)
-    # ---------------------------------------------------------------------
-
     # 1. ------------------------------------------------------------------
-    def do_ping(self, line: str) -> None:
-        """Run *ping* from *src* → *dst* inside the Mininet namespace.
-        
-        Usage: ping <src> <dst> [count]
-        """
-        args = line.split()
-        if len(args) < 2:
-            print("Usage: ping <src> <dst> [count]")
-            return
-            
-        src = args[0]
-        dst = args[1]
-        count = int(args[2]) if len(args) > 2 else 3
-        
-        source = self._find_node(src)
-        target = self._find_node(dst)
-        if source is None or target is None:
-            print(f"❌ Unknown source/target – src={src}, dst={dst}")
-            return
-
-        # Extract IP of *target* (strip CIDR suffix when present)
-        if not target.wintfs:
-            print(f"❌ Target {dst} has no wireless interfaces")
-            return
-        ip = list(target.wintfs.values())[0].ip.split("/")[0]
-
-        print(f"🏓 {src} → {dst} ({ip})  count={count}")
-        out = source.cmd(f"ping -c {count} -W 5 {ip} | cat")  # ensure non-interactive
-        print(out)
-
-    # 2. ------------------------------------------------------------------
     def do_balance(self, line: str) -> None:
         """Print *user* balance across all authorities (and highlight consistency).
         
@@ -170,7 +132,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         symbol = "✅" if all_equal else "⚠️"
         print(f"💰 {user}: {balances[0] if all_equal else balances} {symbol}")
 
-    # 3. ------------------------------------------------------------------
+    # 2. ------------------------------------------------------------------
     def do_transfer(self, line: str) -> None:
         """Broadcast a transfer order using :pymeth:`mn_wifi.client.Client.transfer`.
         
@@ -201,7 +163,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
         print(f"🚀 {sender} → {recipient} {amount} {token_type} ")
         try:
-            token = SUPPORTED_TOKENS[tokenSymbol]
+            token = SUPPORTED_TOKENS[token_type]
             success = client.transfer(recipient, token.address, amount)
             if success:
                 print("✅ Transfer request broadcast to authorities – awaiting quorum")
@@ -210,7 +172,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         except Exception as exc:  # pragma: no cover – defensive, should not occur
             print(f"❌ Transfer failed: {exc}")
 
-    # 0. ------------------------------------------------------------------
+    # 3. ------------------------------------------------------------------
     def do_infor(self, line: str) -> None:  # noqa: D401 – imperative form
         """Show JSON-formatted ``state`` of *station* **and** optional performance metrics.
 
@@ -258,10 +220,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         except Exception:  # pragma: no cover – fallback when *state* is not a dataclass
             print(str(node.state))
 
-    # ------------------------------------------------------------------
-    # New command – voting power
-    # ------------------------------------------------------------------
-
+    # 4. ------------------------------------------------------------------
     def do_voting_power(self, line: str) -> None:
         """Display the *current* voting power of every authority.
 
@@ -305,10 +264,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         for name, power in voting_power.items():
             print(f"   • {name}: {power:.3f}")
 
-    # ------------------------------------------------------------------
-    # New command – single authority performance stats
-    # ------------------------------------------------------------------
-
+    # 5. ------------------------------------------------------------------
     def do_performance(self, line: str) -> None:  # noqa: D401 – imperative form
         """Print *authority* performance metrics in JSON form.
 
@@ -356,14 +312,11 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         except Exception as exc:  # pragma: no cover – defensive, should not occur
             print(f"❌ Broadcast confirmation failed: {exc}")
 
-    # ------------------------------------------------------------------
-    # Help command to show FastPay-specific commands
-    # ------------------------------------------------------------------
+    # 6. ------------------------------------------------------------------
     
     def do_help_fastpay(self, line: str) -> None:
         """Show help for FastPay-specific commands."""
         print("\nFastPay Commands:")
-        print("  ping <src> <dst> [count]           - ICMP reachability test")
         print("  balance <user>                     - Show user balance across authorities")
         print("  transfer <sender> <recipient> <token> <amount> - Broadcast transfer order")
         print("  infor <station|all>                - Show station state information")

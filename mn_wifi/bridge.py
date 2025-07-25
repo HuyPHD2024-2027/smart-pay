@@ -22,7 +22,7 @@ import dataclasses
 from uuid import UUID
 from enum import Enum
 
-__all__ = ["MeshInternetBridge"]
+__all__ = ["Bridge"]
 
 # ---------------------------------------------------------------------------
 # Basic static shard list – demo uses round-robin assignment               
@@ -37,15 +37,15 @@ SHARD_NAMES: list[str] = [
 ]
 
 
-class MeshInternetBridge:
+class Bridge:
     """HTTP bridge server that enables web back-ends to communicate with
     mesh authorities.
     """
 
-    def __init__(self, clients: List[Client], port: int = 8080) -> None:
+    def __init__(self, gateway_host: str, port: int = 8080) -> None:
         self.port = port
+        self.gateway_host = gateway_host
         self.authorities: Dict[str, Dict[str, Any]] = {}
-        self.clients_map: Dict[str, Client] = {c.name: c for c in clients}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
         self.running = False
@@ -75,15 +75,11 @@ class MeshInternetBridge:
         except Exception:
             return {"success": False, "error": "amount_not_int"}
 
-        client = self.clients_map.get(sender)
-        if client is None:
-            return {"success": False, "error": "sender_not_found", "sender": sender}
-
         # ------------------------------------------------------------------
         # Execute the transfer using the built-in FastPay helper -------------
         # ------------------------------------------------------------------
         try:
-            ok = client.transfer(recipient, amount_int)
+            ok = self.gateway_host.transfer(recipient, amount_int)
             return {"success": bool(ok), "sender": sender, "recipient": recipient, "amount": amount_int}
         except Exception as exc:  # pragma: no cover – defensive guard
             return {"success": False, "error": str(exc)}
@@ -200,7 +196,7 @@ class MeshInternetBridge:
         info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
 
         class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
-            def __init__(self, *args, bridge: "MeshInternetBridge", **kwargs):
+            def __init__(self, *args, bridge: "Bridge", **kwargs):
                 self.bridge = bridge
                 super().__init__(*args, **kwargs)
 
