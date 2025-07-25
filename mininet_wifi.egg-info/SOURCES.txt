@@ -13,6 +13,7 @@ mn_wifi/authority.py
 mn_wifi/authorityLogger.py
 mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
+mn_wifi/bridge.py
 mn_wifi/clean.py
 mn_wifi/cli.py
 mn_wifi/cli_fastpay.py
@@ -77,6 +78,7 @@ mn_wifi/examples/ieee80211p.py
 mn_wifi/examples/mesh.py
 mn_wifi/examples/meshAP.py
 mn_wifi/examples/mesh_internet_bridge.py
+mn_wifi/examples/meshpay_demo.py
 mn_wifi/examples/miniedit.py
 mn_wifi/examples/mobility.py
 mn_wifi/examples/mobilityModel.py
