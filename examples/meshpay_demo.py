@@ -54,15 +54,8 @@ from mn_wifi.client import Client
 from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
-<<<<<<< HEAD
 from mn_wifi.bridge import Bridge
-=======
-<<<<<<<< HEAD:examples/fastpay_mesh_internet_demo.py
 from mn_wifi.examples.mesh_internet_bridge import Bridge
-========
-from mn_wifi.bridge import Bridge
->>>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece:examples/meshpay_demo.py
->>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
 from mn_wifi.examples.demoCommon import (
     open_xterms as _open_xterms,
     close_xterms as _close_xterms,
