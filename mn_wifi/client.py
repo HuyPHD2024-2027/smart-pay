@@ -177,6 +177,7 @@ class Client(Station):
     def transfer(
         self,
         recipient: str,
+        token_address: str,
         amount: int,
     ) -> bool:
         """Broadcast a *transfer order* to the given *authorities*.
@@ -194,6 +195,7 @@ class Client(Station):
         order = TransferOrder(
             order_id=uuid4(),
             sender=self.state.name,
+            token_address=token_address,
             recipient=recipient,
             amount=amount,
             sequence_number=self.state.sequence_number,

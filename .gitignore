@@ -14,3 +14,4 @@ doc/html
 doc/latex
 trunk
 .DS_Store
+.env

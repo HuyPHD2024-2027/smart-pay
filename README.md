@@ -16,7 +16,7 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
   git clone https://github.com/HuyPHD2024-2027/smart-pay.git
   mv smart-pay mininet-wifi
   cd mininet-wifi
-  sudo util/install.sh -Wln1
+  sudo util/install.sh -Wln
   ```
 ---
 
@@ -24,7 +24,7 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
 
 ```bash
 # Start a 5-authority / 3-user mesh with CLI
-sudo python3 -m mn_wifi.examples.fastpay_mesh_demo --authorities 5 --clients 3
+sudo python3 -m mn_wifi.examples.meshpay_demo --authorities 5 --clients 3
 ```
 Inside the CLI you can issue FastPay commands such as:
 ```bash

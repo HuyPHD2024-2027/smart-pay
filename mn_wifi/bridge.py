@@ -15,14 +15,15 @@ import time
 from typing import Any, Dict, Optional, List
 
 from mininet.log import info
-
+from mn_wifi.node import Node_wifi
 from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
+from mn_wifi.gateway import Gateway
 import dataclasses
 from uuid import UUID
 from enum import Enum
+from mn_wifi.services.core.config import settings
 
-__all__ = ["MeshInternetBridge"]
+__all__ = ["Bridge"]
 
 # ---------------------------------------------------------------------------
 # Basic static shard list – demo uses round-robin assignment               
@@ -37,54 +38,125 @@ SHARD_NAMES: list[str] = [
 ]
 
 
-class MeshInternetBridge:
+class Bridge:
     """HTTP bridge server that enables web back-ends to communicate with
     mesh authorities.
     """
 
-    def __init__(self, clients: List[Client], port: int = 8080) -> None:
+    def __init__(self, gateway: Gateway, port: int = 8080) -> None:
+        """Initialize the Bridge server.
+        
+        Args:
+            gateway: The gateway host node for mesh network communication
+            port: The port number for the HTTP bridge server (default: 8080)
+            update_interval: Interval in seconds for authority updates (default: 30)
+        """
         self.port = port
+        self.gateway: Optional[Gateway] = gateway
         self.authorities: Dict[str, Dict[str, Any]] = {}
-        self.clients_map: Dict[str, Client] = {c.name: c for c in clients}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
+        self.update_thread: Optional[threading.Thread] = None
+        self.update_interval = settings.blockchain_sync_interval 
         self.running = False
 
     # ------------------------------------------------------------------
-    # New – HTTP → client.transfer helper
+    # New – HTTP → gateway.transfer helper
     # ------------------------------------------------------------------
 
-    def _transfer_via_client(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a transfer order through :pymeth:`mn_wifi.client.Client.transfer`.
+    def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a transfer order through the gateway.
 
-        The JSON body must include ``sender``, ``recipient`` and ``amount``.
+        The JSON body must include ``sender``, ``recipient``, ``token_address`` and ``amount``.
         The helper performs basic validation and returns a JSON-serialisable
         response containing ``success`` and optional ``error``.
         """
 
+        # Extract and validate required fields
         sender = body.get("sender")
         recipient = body.get("recipient")
+        token_address = body.get("token_address")
         amount = body.get("amount")
+        sequence_number = body.get("sequence_number", 1)
+        signature = body.get("signature")
 
-        # Basic sanity checks --------------------------------------------------
-        if sender is None or recipient is None or amount is None:
-            return {"success": False, "error": "missing_fields", "required": ["sender", "recipient", "amount"]}
+        # Basic sanity checks
+        if sender is None or recipient is None or token_address is None or amount is None:
+            return {
+                "success": False, 
+                "error": "missing_fields", 
+                "required": ["sender", "recipient", "token_address", "amount"]
+            }
 
         try:
             amount_int = int(amount)
-        except Exception:
+            if amount_int <= 0:
+                return {"success": False, "error": "amount_must_be_positive"}
+        except (ValueError, TypeError):
             return {"success": False, "error": "amount_not_int"}
 
-        client = self.clients_map.get(sender)
-        if client is None:
-            return {"success": False, "error": "sender_not_found", "sender": sender}
+        # Validate token address format
+        if not token_address.startswith("0x"):
+            return {"success": False, "error": "invalid_token_address_format"}
 
-        # ------------------------------------------------------------------
-        # Execute the transfer using the built-in FastPay helper -------------
-        # ------------------------------------------------------------------
+        # Execute the transfer using the gateway
         try:
-            ok = client.transfer(recipient, amount_int)
-            return {"success": bool(ok), "sender": sender, "recipient": recipient, "amount": amount_int}
+            if self.gateway and hasattr(self.gateway, 'forward_transfer'):
+                # Use gateway's forward_transfer method if available
+                success = self.gateway.forward_transfer(sender, recipient, token_address, amount_int, sequence_number)
+                return {
+                    "success": bool(success), 
+                    "sender": sender, 
+                    "recipient": recipient, 
+                    "token_address": token_address,
+                    "amount": amount_int,
+                    "sequence_number": sequence_number,
+                    "timestamp": time.time()
+                }
+            else:
+                # Fallback: create a simple transfer order and broadcast it
+                from mn_wifi.baseTypes import TransferOrder
+                from mn_wifi.messages import TransferRequestMessage, Message, MessageType
+                from uuid import uuid4
+                
+                # Create transfer order
+                transfer_order = TransferOrder(
+                    order_id=uuid4(),
+                    sender=sender,
+                    token_address=token_address,
+                    recipient=recipient,
+                    amount=amount_int,
+                    sequence_number=sequence_number,
+                    timestamp=time.time(),
+                    signature=signature or "dummy_signature"
+                )
+                
+                # Create transfer request message
+                request = TransferRequestMessage(transfer_order=transfer_order)
+                message = Message(
+                    message_id=uuid4(),
+                    message_type=MessageType.TRANSFER_REQUEST,
+                    sender=None,  # Will be set by gateway
+                    recipient=None,  # Will be set by gateway
+                    timestamp=time.time(),
+                    payload=request.to_payload(),
+                )
+                
+                # Broadcast through gateway
+                if self.gateway and hasattr(self.gateway, '_broadcast_transfer_request'):
+                    success = self.gateway._broadcast_transfer_request(message)
+                    return {
+                        "success": bool(success), 
+                        "sender": sender, 
+                        "recipient": recipient, 
+                        "token_address": token_address,
+                        "amount": amount_int,
+                        "sequence_number": sequence_number,
+                        "timestamp": time.time()
+                    }
+                else:
+                    return {"success": False, "error": "gateway_not_available"}
+                    
         except Exception as exc:  # pragma: no cover – defensive guard
             return {"success": False, "error": str(exc)}
 
@@ -162,6 +234,111 @@ class MeshInternetBridge:
         shard_name = SHARD_NAMES[idx % len(SHARD_NAMES)]
         self.authorities[authority.name]["shard"] = shard_name
 
+    def update_authority_info(self, authority: WiFiAuthority) -> None:
+        """Update existing authority information without changing shard assignment.
+        
+        Args:
+            authority: Authority to update
+        """
+        if authority.name not in self.authorities:
+            # If authority doesn't exist, register it normally
+            self.register_authority(authority)
+            return
+            
+        # Update existing authority info while preserving shard assignment
+        shard_name = self.authorities[authority.name].get("shard", SHARD_NAMES[0])
+        
+        def _serialise_account(acc):  # type: ignore[ann-type]
+            return {
+                "address": acc.address,
+                "balance": acc.balance,
+                "sequence_number": acc.sequence_number,
+                "last_update": acc.last_update,
+            }
+
+        accounts = {
+            addr: _serialise_account(acc)
+            for addr, acc in authority.state.accounts.items()
+        }
+
+        self.authorities[authority.name] = {
+            "name": authority.name,
+            "ip": authority.IP(),
+            "address": {
+                "node_id": authority.address.node_id,
+                "ip_address": authority.address.ip_address,
+                "port": authority.address.port,
+                "node_type": authority.address.node_type.value,
+            },
+            "status": "online",
+            "state": self._to_jsonable(authority.state),
+            "shard": shard_name,  # Preserve existing shard assignment
+        }
+
+    def _start_authority_update_thread(self) -> None:
+        """Start background thread for periodic authority updates."""
+        if self.update_thread and self.update_thread.is_alive():
+            return
+            
+        self.update_thread = threading.Thread(
+            target=self._authority_update_loop,
+            daemon=True,
+            name="BridgeAuthorityUpdate"
+        )
+        self.update_thread.start()
+        info(f"🔄 Authority update thread started (interval: {self.update_interval}s)\n")
+
+    def _authority_update_loop(self) -> None:
+        """Background loop for periodic authority updates."""
+        while self.running:
+            try:
+                if not self.running:
+                    break
+                    
+                # Update all registered authorities
+                updated_count = 0
+                if self.gateway and hasattr(self.gateway, 'get_authorities'):
+                    authorities = self.gateway.get_authorities()
+                    for auth in authorities:
+                        self.update_authority_info(auth)
+                        updated_count += 1
+                
+                if updated_count > 0:
+                    info(f"🔄 Updated {updated_count} authorities\n")
+                    
+            except Exception as e:
+                info(f"❌ Error in authority update loop: {e}\n")
+                time.sleep(5)  # Wait before retrying
+
+    def trigger_authority_update(self) -> int:
+        """Manually trigger authority update and return number of updated authorities.
+        
+        Returns:
+            Number of authorities that were updated
+        """
+        if not self.running:
+            info("❌ Bridge not running, cannot update authorities\n")
+            return 0
+            
+        try:
+            updated_count = 0
+            if self.gateway and hasattr(self.gateway, 'get_authorities'):
+                authorities = self.gateway.get_authorities()
+                for auth in authorities:
+                    self.update_authority_info(auth)
+                    updated_count += 1
+            
+            if updated_count > 0:
+                info(f"🔄 Manually updated {updated_count} authorities\n")
+            else:
+                info("ℹ️ No authorities found to update\n")
+                
+            return updated_count
+            
+        except Exception as e:
+            info(f"❌ Error in manual authority update: {e}\n")
+            return 0
+
     # ------------------------------------------------------------------
     # Build shard view --------------------------------------------------
     # ------------------------------------------------------------------
@@ -171,9 +348,9 @@ class MeshInternetBridge:
 
         shards: Dict[str, dict] = {}
         for auth in self.authorities.values():
-            shard = auth.get("shard", SHARD_NAMES[0])
-            entry = shards.setdefault(shard, {
-                "shard_id": shard,
+            # TODO: Add shard assignment logic (currently all authorities are in the same shard)
+            entry = shards.setdefault(SHARD_NAMES[0], {
+                "shard_id": SHARD_NAMES[0],
                 "account_count": 0,
                 "total_transactions": 0,
                 "total_stake": 0,
@@ -198,9 +375,12 @@ class MeshInternetBridge:
             return
 
         info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
+        
+        # Start authority update thread
+        self._start_authority_update_thread()
 
         class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
-            def __init__(self, *args, bridge: "MeshInternetBridge", **kwargs):
+            def __init__(self, *args, bridge: "Bridge", **kwargs):
                 self.bridge = bridge
                 super().__init__(*args, **kwargs)
 
@@ -229,6 +409,7 @@ class MeshInternetBridge:
                         "timestamp": time.time(),
                     })
                 elif self.path == "/shards":
+                    self.bridge.trigger_authority_update()
                     self._json({
                         "shards": self.bridge._get_shards(),
                         "timestamp": time.time(),
@@ -238,10 +419,7 @@ class MeshInternetBridge:
 
             # -------- POST ---------------------------------------------
             def do_POST(self):  # noqa: N802
-                path_parts = [p for p in self.path.split("/") if p]
-
-                # New simple endpoint: POST /transfer -------------------
-                if len(path_parts) == 1 and path_parts[0] == "transfer":
+                if self.path == "/transfer":
                     try:
                         length = int(self.headers.get("Content-Length", "0"))
                         raw = self.rfile.read(length) if length else b"{}"
@@ -250,13 +428,10 @@ class MeshInternetBridge:
                         self._json({"success": False, "error": f"invalid_json: {exc}"}, 400)
                         return
 
-                    result = self.bridge._transfer_via_client(body)
+                    result = self.bridge._transfer_via_gateway(body)
                     code = 200 if result.get("success") else 400
                     self._json(result, code)
-                    return
 
-            def log_message(self, *_):  # silence default logging
-                pass
 
         def _factory(*args, **kwargs):  # type: ignore[ann-type]
             return _Handler(*args, bridge=self, **kwargs)
@@ -277,9 +452,15 @@ class MeshInternetBridge:
         self.server.shutdown()
         self.server.server_close()
         self.server_thread.join(timeout=2)
+        
+        # Stop authority update thread
+        if self.update_thread:
+            self.update_thread.join(timeout=2)
+        
         self.running = False
         self.server = None
         self.server_thread = None
+        self.update_thread = None
 
     # ------------------------------------------------------------------
     # Back-compat helper names (used by the demo script) ---------------
