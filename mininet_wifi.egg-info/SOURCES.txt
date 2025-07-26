@@ -23,6 +23,7 @@ mn_wifi/committee.py
 mn_wifi/devices.py
 mn_wifi/energy.py
 mn_wifi/frequency.py
+mn_wifi/gateway.py
 mn_wifi/link.py
 mn_wifi/manetRoutingProtocols.py
 mn_wifi/messages.py
@@ -76,7 +77,6 @@ mn_wifi/examples/handover_bgscan.py
 mn_wifi/examples/ieee80211p.py
 mn_wifi/examples/mesh.py
 mn_wifi/examples/meshAP.py
-mn_wifi/examples/mesh_internet_bridge.py
 mn_wifi/examples/meshpay_demo.py
 mn_wifi/examples/miniedit.py
 mn_wifi/examples/mobility.py

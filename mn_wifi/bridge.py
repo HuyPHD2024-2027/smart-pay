@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional, List
 from mininet.log import info
 from mn_wifi.node import Node_wifi
 from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
+from mn_wifi.gateway import Gateway
 import dataclasses
 from uuid import UUID
 from enum import Enum
@@ -42,51 +42,117 @@ class Bridge:
     mesh authorities.
     """
 
-    def __init__(self, gateway_host: Node_wifi, port: int = 8080) -> None:
+    def __init__(self, gateway: Gateway, port: int = 8080) -> None:
         """Initialize the Bridge server.
         
         Args:
-            gateway_host: The gateway host node for mesh network communication
+            gateway: The gateway host node for mesh network communication
             port: The port number for the HTTP bridge server (default: 8080)
         """
         self.port = port
-        self.gateway_host: Optional[Node_wifi] = gateway_host
+        self.gateway: Optional[Gateway] = gateway
         self.authorities: Dict[str, Dict[str, Any]] = {}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
         self.running = False
 
     # ------------------------------------------------------------------
-    # New – HTTP → client.transfer helper
+    # New – HTTP → gateway.transfer helper
     # ------------------------------------------------------------------
 
-    def _transfer_via_client(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a transfer order through :pymeth:`mn_wifi.client.Client.transfer`.
+    def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a transfer order through the gateway.
 
-        The JSON body must include ``sender``, ``recipient`` and ``amount``.
+        The JSON body must include ``sender``, ``recipient``, ``token_address`` and ``amount``.
         The helper performs basic validation and returns a JSON-serialisable
         response containing ``success`` and optional ``error``.
         """
 
+        # Extract and validate required fields
         sender = body.get("sender")
         recipient = body.get("recipient")
+        token_address = body.get("token_address")
         amount = body.get("amount")
+        sequence_number = body.get("sequence_number", 1)
+        signature = body.get("signature")
 
-        # Basic sanity checks --------------------------------------------------
-        if sender is None or recipient is None or amount is None:
-            return {"success": False, "error": "missing_fields", "required": ["sender", "recipient", "amount"]}
+        # Basic sanity checks
+        if sender is None or recipient is None or token_address is None or amount is None:
+            return {
+                "success": False, 
+                "error": "missing_fields", 
+                "required": ["sender", "recipient", "token_address", "amount"]
+            }
 
         try:
             amount_int = int(amount)
-        except Exception:
+            if amount_int <= 0:
+                return {"success": False, "error": "amount_must_be_positive"}
+        except (ValueError, TypeError):
             return {"success": False, "error": "amount_not_int"}
 
-        # ------------------------------------------------------------------
-        # Execute the transfer using the built-in FastPay helper -------------
-        # ------------------------------------------------------------------
+        # Validate token address format
+        if not token_address.startswith("0x"):
+            return {"success": False, "error": "invalid_token_address_format"}
+
+        # Execute the transfer using the gateway
         try:
-            ok = self.gateway_host.transfer(recipient, amount_int)
-            return {"success": bool(ok), "sender": sender, "recipient": recipient, "amount": amount_int}
+            if self.gateway and hasattr(self.gateway, 'forward_transfer'):
+                # Use gateway's forward_transfer method if available
+                success = self.gateway.forward_transfer(sender, recipient, token_address, amount_int, sequence_number)
+                return {
+                    "success": bool(success), 
+                    "sender": sender, 
+                    "recipient": recipient, 
+                    "token_address": token_address,
+                    "amount": amount_int,
+                    "sequence_number": sequence_number,
+                    "timestamp": time.time()
+                }
+            else:
+                # Fallback: create a simple transfer order and broadcast it
+                from mn_wifi.baseTypes import TransferOrder
+                from mn_wifi.messages import TransferRequestMessage, Message, MessageType
+                from uuid import uuid4
+                
+                # Create transfer order
+                transfer_order = TransferOrder(
+                    order_id=uuid4(),
+                    sender=sender,
+                    token_address=token_address,
+                    recipient=recipient,
+                    amount=amount_int,
+                    sequence_number=sequence_number,
+                    timestamp=time.time(),
+                    signature=signature or "dummy_signature"
+                )
+                
+                # Create transfer request message
+                request = TransferRequestMessage(transfer_order=transfer_order)
+                message = Message(
+                    message_id=uuid4(),
+                    message_type=MessageType.TRANSFER_REQUEST,
+                    sender=None,  # Will be set by gateway
+                    recipient=None,  # Will be set by gateway
+                    timestamp=time.time(),
+                    payload=request.to_payload(),
+                )
+                
+                # Broadcast through gateway
+                if self.gateway and hasattr(self.gateway, '_broadcast_transfer_request'):
+                    success = self.gateway._broadcast_transfer_request(message)
+                    return {
+                        "success": bool(success), 
+                        "sender": sender, 
+                        "recipient": recipient, 
+                        "token_address": token_address,
+                        "amount": amount_int,
+                        "sequence_number": sequence_number,
+                        "timestamp": time.time()
+                    }
+                else:
+                    return {"success": False, "error": "gateway_not_available"}
+                    
         except Exception as exc:  # pragma: no cover – defensive guard
             return {"success": False, "error": str(exc)}
 
@@ -242,7 +308,6 @@ class Bridge:
             def do_POST(self):  # noqa: N802
                 path_parts = [p for p in self.path.split("/") if p]
 
-                # New simple endpoint: POST /transfer -------------------
                 if len(path_parts) == 1 and path_parts[0] == "transfer":
                     try:
                         length = int(self.headers.get("Content-Length", "0"))
@@ -252,7 +317,7 @@ class Bridge:
                         self._json({"success": False, "error": f"invalid_json: {exc}"}, 400)
                         return
 
-                    result = self.bridge._transfer_via_client(body)
+                    result = self.bridge._transfer_via_gateway(body)
                     code = 200 if result.get("success") else 400
                     self._json(result, code)
                     return

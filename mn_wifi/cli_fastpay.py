@@ -61,7 +61,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         mn_wifi,
         authorities: List[Station],
         clients: List[Client],
-        gateway_host: Optional[Node_wifi] = None,
+        gateway: Optional[Node_wifi] = None,
         *,
         quorum_ratio: float = 2 / 3,
         stdin=sys.stdin,
@@ -84,11 +84,8 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
         self.authorities = authorities
         self.clients = clients
-        self.gateway_host = gateway_host
-<<<<<<< HEAD
+        self.gateway = gateway
 
-=======
->>>>>>> cb85b4a4512f9c9c4af4584e448795ad2df53ece
         # Lookup maps and in-memory bookkeeping helpers
         self._pending_orders: Dict[uuid.UUID, TransferOrder] = {}
         self._quorum_weight = int(len(authorities) * quorum_ratio) + 1
@@ -106,7 +103,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
 
     def _find_node(self, name: str) -> Optional[Station]:
         """Return *any* station (authority or client) with the given *name*."""
-        for node in [*self.authorities, *self.clients, self.gateway_host]:
+        for node in [*self.authorities, *self.clients, self.gateway]:
             if node.name == name:
                 return node
         return None

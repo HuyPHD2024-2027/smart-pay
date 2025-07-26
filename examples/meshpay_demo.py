@@ -46,6 +46,7 @@ import dataclasses
 
 from mininet.log import info, setLogLevel
 from mininet.nodelib import NAT
+from mininet.link import TCLink
 from mn_wifi.link import wmediumd, mesh
 from mn_wifi.wmediumdConnector import interference
 from mn_wifi.net import Mininet_wifi
@@ -55,6 +56,7 @@ from mn_wifi.cli_fastpay import FastPayCLI
 from mn_wifi.transport import TransportKind
 from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
 from mn_wifi.bridge import Bridge
+from mn_wifi.gateway import Gateway
 from mn_wifi.examples.mesh_internet_bridge import Bridge
 from mn_wifi.examples.demoCommon import (
     open_xterms as _open_xterms,
@@ -126,27 +128,24 @@ def create_mesh_network_with_internet(
     
     # Add internet gateway if enabled
     bridge = None
-    gateway_host = None
+    gateway = None
     if enable_internet:
         info("🌐 Adding Internet Gateway\n")
         
         # Add host node as internet gateway (replaces access point)
-        gateway_host = net.addHost(
+        gateway = net.addStation(
             'gw',
+            cls=Gateway,
             ip='10.0.0.254/8',
-            position=[20, 40, 0]
+            # position=[20, 40, 0]
         )
         
         # Add NAT for internet connectivity using the host gateway
-        nat = net.addNAT(name='nat0', connect=gateway_host, ip='10.0.0.1/8')
+        nat = net.addNAT(name='nat0', connect=gateway, ip='10.0.0.1/8')
         
         # Create mesh-internet bridge service, passing host so HTTP API can
-        # reuse host.transfer when /transfer is called.
-        bridge = Bridge(gateway_host, port=gateway_port)
-        
-        # Create mesh-internet bridge service, passing clients so HTTP API can
-        # reuse client.transfer when /transfer is called.
-        bridge = Bridge(clients, port=gateway_port)
+        # reuse host.forward_transfer when /transfer is called.
+        bridge = Bridge(gateway, port=gateway_port)
     
     # Configure mesh networking
     info("*** Configuring IEEE 802.11s mesh\n")
@@ -170,7 +169,7 @@ def create_mesh_network_with_internet(
         info("*** Configuring internet gateway connections\n")
         # # Connect first authority to the internet gateway host via wired link
         for i in range(1, num_authorities + 1):
-            net.addLink(authorities[i-1], gateway_host, cls=TCLink)
+            net.addLink(authorities[i-1], gateway, cls=TCLink)
 
 
     # Configure mobility if enabled
@@ -191,13 +190,13 @@ def create_mesh_network_with_internet(
         info("*** Plotting mesh network\n")
         net.plotGraph(max_x=200, max_y=150)
 
-    return net, authorities, clients, gateway_host, bridge
+    return net, authorities, clients, gateway, bridge
 
 
 def configure_internet_access(
     net: Mininet_wifi, 
     authorities: List[WiFiAuthority], 
-    clients: List[Client], 
+    gateway: Optional[Node_wifi],
     bridge: Optional[Bridge]
 ) -> None:
     """Configure internet access for mesh nodes via NAT gateway.
@@ -222,22 +221,37 @@ def configure_internet_access(
     info("*** NAT routing configured automatically by mn-wifi\n")
     
     # Enable IP forwarding on gateway host if needed
-    gateway_nodes = [node for node in net.hosts if node.name == 'gw']
-    if gateway_nodes:
-        gateway_host = gateway_nodes[0]
-        gateway_host.cmd('sysctl -w net.ipv4.ip_forward=1')
-        info(f"*** IP forwarding enabled on {gateway_host.name}\n")
+    gateway.cmd('sysctl -w net.ipv4.ip_forward=1')
+    info(f"*** IP forwarding enabled on {gateway.name}\n")
     
     # Start bridge service on gateway host
-    gateway_nodes = [node for node in net.hosts if node.name == 'gw']
-    gateway_host = gateway_nodes[0] if gateway_nodes else None
-    bridge.start_bridge_server(gateway_host)
+    bridge.start_bridge_server(gateway)
 
 
-# ---------------------------------------------------------------------------
-# No local CLI parsing – we rely on demoCommon.parse_mesh_internet_args -----
-# ---------------------------------------------------------------------------
-
+def setup_gateway_multi_interface(gateway: Gateway, authorities: List[WiFiAuthority]) -> None:
+    """Set up the gateway with multi-interface support for each authority.
+    
+    Args:
+        gateway: Gateway instance to configure
+        authorities: List of authority nodes to register
+    """
+    info("*** Setting up gateway multi-interface forwarding\n")
+    
+    for i, auth in enumerate(authorities, start=1):
+        auth_name = auth.name
+        interface_name = f"gw-eth{i}"
+        gateway_ip = f"192.168.100.{10 + i}"
+        authority_ip = f"192.168.100.{i}"
+        
+        # Register authority with its interface information
+        gateway.register_authority_interface(
+            authority_name=auth_name,
+            authority_address=auth.address,
+            interface_name=interface_name,
+            gateway_ip=gateway_ip,
+            authority_ip=authority_ip,
+            transport_kind=TransportKind.TCP
+        )
 
 def main() -> None:
     """Main entry point for the enhanced mesh demo."""
@@ -257,7 +271,7 @@ def main() -> None:
     bridge = None
     try:
         # Create enhanced mesh network with internet gateway
-        net, authorities, clients, gateway_host, bridge = create_mesh_network_with_internet(
+        net, authorities, clients, gateway, bridge = create_mesh_network_with_internet(
             num_authorities=args.authorities,
             num_clients=args.clients,
             mesh_id=args.mesh_id,
@@ -278,11 +292,11 @@ def main() -> None:
             gw_ip = f"192.168.100.{10 + i}"  
 
             auth.setIP(auth_ip + '/24', intf=f'{auth.name}-eth1')
-            gateway_host.setIP(gw_ip + '/24', intf=f'gw-eth{i}')
+            gateway.setIP(gw_ip + '/24', intf=f'gw-eth{i}')
 
         # Configure internet access if enabled
         if args.internet and bridge:
-            configure_internet_access(net, authorities, clients, bridge)
+            configure_internet_access(net, authorities, gateway, bridge)
         
         # Start FastPay services on all nodes
         info("*** Starting FastPay services on all nodes\n")
@@ -292,6 +306,11 @@ def main() -> None:
         for client in clients:
             client.start_fastpay_services()
         
+        gateway.start_gateway_services()
+        
+        # Set up gateway multi-interface forwarding
+        setup_gateway_multi_interface(gateway, authorities)
+
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")
         time.sleep(5)
@@ -302,7 +321,7 @@ def main() -> None:
         
         # Start interactive CLI using standard FastPay CLI
         info("*** Starting Enhanced FastPay CLI\n")
-        cli = FastPayCLI(net, authorities, clients, gateway_host)
+        cli = FastPayCLI(net, authorities, clients, gateway)
         print("\n" + "=" * 70)
         print("🕸️  Enhanced FastPay IEEE 802.11s Mesh Network Ready!")
         if args.internet:
