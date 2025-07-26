@@ -21,6 +21,7 @@ from mn_wifi.gateway import Gateway
 import dataclasses
 from uuid import UUID
 from enum import Enum
+from mn_wifi.services.core.config import settings
 
 __all__ = ["Bridge"]
 
@@ -48,12 +49,15 @@ class Bridge:
         Args:
             gateway: The gateway host node for mesh network communication
             port: The port number for the HTTP bridge server (default: 8080)
+            update_interval: Interval in seconds for authority updates (default: 30)
         """
         self.port = port
         self.gateway: Optional[Gateway] = gateway
         self.authorities: Dict[str, Dict[str, Any]] = {}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
+        self.update_thread: Optional[threading.Thread] = None
+        self.update_interval = settings.blockchain_sync_interval 
         self.running = False
 
     # ------------------------------------------------------------------
@@ -230,6 +234,111 @@ class Bridge:
         shard_name = SHARD_NAMES[idx % len(SHARD_NAMES)]
         self.authorities[authority.name]["shard"] = shard_name
 
+    def update_authority_info(self, authority: WiFiAuthority) -> None:
+        """Update existing authority information without changing shard assignment.
+        
+        Args:
+            authority: Authority to update
+        """
+        if authority.name not in self.authorities:
+            # If authority doesn't exist, register it normally
+            self.register_authority(authority)
+            return
+            
+        # Update existing authority info while preserving shard assignment
+        shard_name = self.authorities[authority.name].get("shard", SHARD_NAMES[0])
+        
+        def _serialise_account(acc):  # type: ignore[ann-type]
+            return {
+                "address": acc.address,
+                "balance": acc.balance,
+                "sequence_number": acc.sequence_number,
+                "last_update": acc.last_update,
+            }
+
+        accounts = {
+            addr: _serialise_account(acc)
+            for addr, acc in authority.state.accounts.items()
+        }
+
+        self.authorities[authority.name] = {
+            "name": authority.name,
+            "ip": authority.IP(),
+            "address": {
+                "node_id": authority.address.node_id,
+                "ip_address": authority.address.ip_address,
+                "port": authority.address.port,
+                "node_type": authority.address.node_type.value,
+            },
+            "status": "online",
+            "state": self._to_jsonable(authority.state),
+            "shard": shard_name,  # Preserve existing shard assignment
+        }
+
+    def _start_authority_update_thread(self) -> None:
+        """Start background thread for periodic authority updates."""
+        if self.update_thread and self.update_thread.is_alive():
+            return
+            
+        self.update_thread = threading.Thread(
+            target=self._authority_update_loop,
+            daemon=True,
+            name="BridgeAuthorityUpdate"
+        )
+        self.update_thread.start()
+        info(f"🔄 Authority update thread started (interval: {self.update_interval}s)\n")
+
+    def _authority_update_loop(self) -> None:
+        """Background loop for periodic authority updates."""
+        while self.running:
+            try:
+                if not self.running:
+                    break
+                    
+                # Update all registered authorities
+                updated_count = 0
+                if self.gateway and hasattr(self.gateway, 'get_authorities'):
+                    authorities = self.gateway.get_authorities()
+                    for auth in authorities:
+                        self.update_authority_info(auth)
+                        updated_count += 1
+                
+                if updated_count > 0:
+                    info(f"🔄 Updated {updated_count} authorities\n")
+                    
+            except Exception as e:
+                info(f"❌ Error in authority update loop: {e}\n")
+                time.sleep(5)  # Wait before retrying
+
+    def trigger_authority_update(self) -> int:
+        """Manually trigger authority update and return number of updated authorities.
+        
+        Returns:
+            Number of authorities that were updated
+        """
+        if not self.running:
+            info("❌ Bridge not running, cannot update authorities\n")
+            return 0
+            
+        try:
+            updated_count = 0
+            if self.gateway and hasattr(self.gateway, 'get_authorities'):
+                authorities = self.gateway.get_authorities()
+                for auth in authorities:
+                    self.update_authority_info(auth)
+                    updated_count += 1
+            
+            if updated_count > 0:
+                info(f"🔄 Manually updated {updated_count} authorities\n")
+            else:
+                info("ℹ️ No authorities found to update\n")
+                
+            return updated_count
+            
+        except Exception as e:
+            info(f"❌ Error in manual authority update: {e}\n")
+            return 0
+
     # ------------------------------------------------------------------
     # Build shard view --------------------------------------------------
     # ------------------------------------------------------------------
@@ -239,9 +348,9 @@ class Bridge:
 
         shards: Dict[str, dict] = {}
         for auth in self.authorities.values():
-            shard = auth.get("shard", SHARD_NAMES[0])
-            entry = shards.setdefault(shard, {
-                "shard_id": shard,
+            # TODO: Add shard assignment logic (currently all authorities are in the same shard)
+            entry = shards.setdefault(SHARD_NAMES[0], {
+                "shard_id": SHARD_NAMES[0],
                 "account_count": 0,
                 "total_transactions": 0,
                 "total_stake": 0,
@@ -266,6 +375,9 @@ class Bridge:
             return
 
         info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
+        
+        # Start authority update thread
+        self._start_authority_update_thread()
 
         class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
             def __init__(self, *args, bridge: "Bridge", **kwargs):
@@ -297,6 +409,7 @@ class Bridge:
                         "timestamp": time.time(),
                     })
                 elif self.path == "/shards":
+                    self.bridge.trigger_authority_update()
                     self._json({
                         "shards": self.bridge._get_shards(),
                         "timestamp": time.time(),
@@ -306,9 +419,7 @@ class Bridge:
 
             # -------- POST ---------------------------------------------
             def do_POST(self):  # noqa: N802
-                path_parts = [p for p in self.path.split("/") if p]
-
-                if len(path_parts) == 1 and path_parts[0] == "transfer":
+                if self.path == "/transfer":
                     try:
                         length = int(self.headers.get("Content-Length", "0"))
                         raw = self.rfile.read(length) if length else b"{}"
@@ -320,10 +431,7 @@ class Bridge:
                     result = self.bridge._transfer_via_gateway(body)
                     code = 200 if result.get("success") else 400
                     self._json(result, code)
-                    return
 
-            def log_message(self, *_):  # silence default logging
-                pass
 
         def _factory(*args, **kwargs):  # type: ignore[ann-type]
             return _Handler(*args, bridge=self, **kwargs)
@@ -344,9 +452,15 @@ class Bridge:
         self.server.shutdown()
         self.server.server_close()
         self.server_thread.join(timeout=2)
+        
+        # Stop authority update thread
+        if self.update_thread:
+            self.update_thread.join(timeout=2)
+        
         self.running = False
         self.server = None
         self.server_thread = None
+        self.update_thread = None
 
     # ------------------------------------------------------------------
     # Back-compat helper names (used by the demo script) ---------------

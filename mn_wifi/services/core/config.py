@@ -53,7 +53,8 @@ class Settings():
     chain_id: int = os.getenv("CHAIN_ID", 128123)
     chain_name: str = os.getenv("CHAIN_NAME", "Etherlink Testnet")
     backend_private_key: Optional[str] = os.getenv("BACKEND_PRIVATE_KEY", None)
-    
+    blockchain_sync_interval: int = os.getenv("BLOCKCHAIN_SYNC_INTERVAL", 300) # seconds
+
     # Mesh Network Configuration
     mesh_gateway_url: str = os.getenv("MESH_GATEWAY_URL", "http://10.0.0.254:8080")
     mesh_discovery_enabled: bool = os.getenv("MESH_DISCOVERY_ENABLED", True)
@@ -117,9 +118,6 @@ class Settings():
     network_scan_range: str = os.getenv("NETWORK_SCAN_RANGE", "192.168.1.0/24")
     mesh_bridge_url: str = os.getenv("MESH_BRIDGE_URL", "http://192.168.1.142:8080")
     mesh_timeout: float = os.getenv("MESH_TIMEOUT", 10.0)
-    
-    # Blockchain sync configuration
-    blockchain_sync_interval: int = os.getenv("BLOCKCHAIN_SYNC_INTERVAL", 60)  # seconds
     
     @field_validator('meshpay_contract_address', 'meshpay_authority_contract_address', 
              'usdt_contract_address', 'usdc_contract_address')

@@ -19,6 +19,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Any
 from uuid import uuid4
 from dataclasses import dataclass
+from mininet.log import info
 
 from mn_wifi.baseTypes import (
     Address,
@@ -28,6 +29,7 @@ from mn_wifi.baseTypes import (
     TransactionStatus,
     GatewayState,
 )
+from mn_wifi.authority import WiFiAuthority
 from mn_wifi.messages import (
     Message,
     MessageType,
@@ -400,6 +402,24 @@ class Gateway(Station):
             Dictionary mapping authority names to their interface information.
         """
         return self._authority_interfaces.copy()
+
+    def get_authorities(self) -> List['WiFiAuthority']:
+        """Get list of registered authorities for bridge updates.
+        
+        Returns:
+            List of WiFiAuthority instances that are registered with this gateway.
+        """
+        authorities = []
+        
+        # Try to get authorities from the network if available
+            for node in self.net.stations:
+                info(f"Node: {node}, isInstance(node, WiFiAuthority): {isinstance(node, WiFiAuthority)}")
+                if isinstance(node, WiFiAuthority):
+                    authorities.append(node)
+        
+        # If no authorities found via network, return empty list
+        # The bridge will handle this gracefully
+        return authorities
 
     def is_running(self) -> bool:
         """Check if the gateway is running.

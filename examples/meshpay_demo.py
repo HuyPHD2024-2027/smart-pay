@@ -57,7 +57,6 @@ from mn_wifi.transport import TransportKind
 from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
 from mn_wifi.bridge import Bridge
 from mn_wifi.gateway import Gateway
-from mn_wifi.examples.mesh_internet_bridge import Bridge
 from mn_wifi.examples.demoCommon import (
     open_xterms as _open_xterms,
     close_xterms as _close_xterms,

@@ -763,13 +763,12 @@ class WiFiAuthority(Station):
     
     def _blockchain_sync_loop(self) -> None:
         """Periodic blockchain synchronization loop."""
-        # Default sync interval: 1 minute (60 seconds)
-        sync_interval = getattr(settings, 'blockchain_sync_interval', 60)
-        
+        first_run = True
         while self._running:
             try:
-                # Wait for the sync interval
-                time.sleep(sync_interval)
+                # Wait for the sync interval (skip on first run)
+                if not first_run:
+                    time.sleep(settings.blockchain_sync_interval)
                 
                 if not self._running:
                     break
@@ -783,6 +782,9 @@ class WiFiAuthority(Station):
                     self.logger.error(f"Error in blockchain sync cycle: {e}")
                 
                 self.logger.info(f"Completed blockchain sync cycle for {len(self.state.accounts)} accounts")
+                
+                # Mark that we've completed the first run
+                first_run = False
                 
             except Exception as e:
                 self.logger.error(f"Error in blockchain sync loop: {e}")
