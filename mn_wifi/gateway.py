@@ -412,10 +412,9 @@ class Gateway(Station):
         authorities = []
         
         # Try to get authorities from the network if available
-            for node in self.net.stations:
-                info(f"Node: {node}, isInstance(node, WiFiAuthority): {isinstance(node, WiFiAuthority)}")
-                if isinstance(node, WiFiAuthority):
-                    authorities.append(node)
+        for node in self.net.stations:
+            if isinstance(node, WiFiAuthority):
+                authorities.append(node)
         
         # If no authorities found via network, return empty list
         # The bridge will handle this gracefully

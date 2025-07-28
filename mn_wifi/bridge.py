@@ -13,15 +13,17 @@ import socketserver
 import threading
 import time
 from typing import Any, Dict, Optional, List
+from urllib.parse import urlparse, parse_qs
 
 from mininet.log import info
 from mn_wifi.node import Node_wifi
 from mn_wifi.authority import WiFiAuthority
+from mn_wifi.client import Client
 from mn_wifi.gateway import Gateway
 import dataclasses
 from uuid import UUID
 from enum import Enum
-from mn_wifi.services.core.config import settings
+from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
 
 __all__ = ["Bridge"]
 
@@ -43,16 +45,18 @@ class Bridge:
     mesh authorities.
     """
 
-    def __init__(self, gateway: Gateway, port: int = 8080) -> None:
+    def __init__(self, gateway: Gateway, net=None, port: int = 8080) -> None:
         """Initialize the Bridge server.
         
         Args:
             gateway: The gateway host node for mesh network communication
+            net: Mininet-wifi network instance for accessing all nodes
             port: The port number for the HTTP bridge server (default: 8080)
             update_interval: Interval in seconds for authority updates (default: 30)
         """
         self.port = port
         self.gateway: Optional[Gateway] = gateway
+        self.net = net  # Store the network instance
         self.authorities: Dict[str, Dict[str, Any]] = {}
         self.server: Optional[socketserver.TCPServer] = None
         self.server_thread: Optional[threading.Thread] = None
@@ -60,9 +64,20 @@ class Bridge:
         self.update_interval = settings.blockchain_sync_interval 
         self.running = False
 
-    # ------------------------------------------------------------------
-    # New – HTTP → gateway.transfer helper
-    # ------------------------------------------------------------------
+    def get_authorities_from_network(self) -> List[WiFiAuthority]:
+        """Get all authority nodes from the network.
+        
+        Returns:
+            List of WiFiAuthority instances
+        """
+        if not self.net:
+            return []
+        
+        authorities = []
+        for node in self.net.stations:
+            if isinstance(node, WiFiAuthority):
+                authorities.append(node)
+        return authorities
 
     def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a transfer order through the gateway.
@@ -206,7 +221,7 @@ class Bridge:
         def _serialise_account(acc):  # type: ignore[ann-type]
             return {
                 "address": acc.address,
-                "balance": acc.balance,
+                "balances": acc.balances,
                 "sequence_number": acc.sequence_number,
                 "last_update": acc.last_update,
             }
@@ -248,19 +263,6 @@ class Bridge:
         # Update existing authority info while preserving shard assignment
         shard_name = self.authorities[authority.name].get("shard", SHARD_NAMES[0])
         
-        def _serialise_account(acc):  # type: ignore[ann-type]
-            return {
-                "address": acc.address,
-                "balance": acc.balance,
-                "sequence_number": acc.sequence_number,
-                "last_update": acc.last_update,
-            }
-
-        accounts = {
-            addr: _serialise_account(acc)
-            for addr, acc in authority.state.accounts.items()
-        }
-
         self.authorities[authority.name] = {
             "name": authority.name,
             "ip": authority.IP(),
@@ -295,13 +297,12 @@ class Bridge:
                 if not self.running:
                     break
                     
-                # Update all registered authorities
+                # Update all registered authorities using network
                 updated_count = 0
-                if self.gateway and hasattr(self.gateway, 'get_authorities'):
-                    authorities = self.gateway.get_authorities()
-                    for auth in authorities:
-                        self.update_authority_info(auth)
-                        updated_count += 1
+                authorities = self.get_authorities_from_network()
+                for auth in authorities:
+                    self.update_authority_info(auth)
+                    updated_count += 1
                 
                 if updated_count > 0:
                     info(f"🔄 Updated {updated_count} authorities\n")
@@ -322,11 +323,10 @@ class Bridge:
             
         try:
             updated_count = 0
-            if self.gateway and hasattr(self.gateway, 'get_authorities'):
-                authorities = self.gateway.get_authorities()
-                for auth in authorities:
-                    self.update_authority_info(auth)
-                    updated_count += 1
+            authorities = self.get_authorities_from_network()
+            for auth in authorities:
+                self.update_authority_info(auth)
+                updated_count += 1
             
             if updated_count > 0:
                 info(f"🔄 Manually updated {updated_count} authorities\n")
@@ -338,6 +338,91 @@ class Bridge:
         except Exception as e:
             info(f"❌ Error in manual authority update: {e}\n")
             return 0
+
+    def getAccount(self, address: str) -> Dict[str, Any]:
+        """Get account information for a specific address.
+        
+        Args:
+            address: The account address to look up
+            
+        Returns:
+            AccountInfo dictionary with balances and registration status
+        """
+        try:
+            # Initialize default account info structure
+            account_info = {
+                "address": address,
+                "balances": {
+                    "USDT": {
+                        "token_symbol": "USDT",
+                        "token_address": SUPPORTED_TOKENS["USDT"]["address"],
+                        "wallet_balance": 0,
+                        "meshpay_balance": 0,
+                        "total_balance": 0
+                    },
+                    "USDC": {
+                        "token_symbol": "USDC", 
+                        "token_address": SUPPORTED_TOKENS["USDC"]["address"],
+                        "wallet_balance": 0,
+                        "meshpay_balance": 0,
+                        "total_balance": 0
+                    },
+                    "XTZ": {
+                        "token_symbol": "XTZ",
+                        "token_address": SUPPORTED_TOKENS["XTZ"]["address"],
+                        "wallet_balance": 0,
+                        "meshpay_balance": 0,
+                        "total_balance": 0
+                    },
+                    "WTZ": {
+                        "token_symbol": "WTZ",
+                        "token_address": SUPPORTED_TOKENS["WTZ"]["address"],
+                        "wallet_balance": 0,
+                        "meshpay_balance": 0,
+                        "total_balance": 0
+                    }
+                },
+                "is_registered": False,
+                "sequence_number": 0,
+                "registration_time": 0,
+                "last_redeemed_sequence": 0
+            }
+            
+            # Search for account in all authorities
+            found_account = False
+            for auth_info in self.authorities.values():
+                if "state" in auth_info and "accounts" in auth_info["state"]:
+                    accounts = auth_info["state"]["accounts"]
+                    if address in accounts:
+                        account_data = accounts[address]
+                        found_account = True
+                        
+                        # Update registration status
+                        account_info["is_registered"] = True
+                        account_info["registration_time"] = account_data.get("last_update", 0)
+                        account_info["last_redeemed_sequence"] = account_data.get("sequence_number", 0)
+                        account_info["balances"] = account_data.get("balances", {})
+                        account_info["sequence_number"] = account_data.get("sequence_number", 0)
+                        # Only need to find the account once
+                        break
+            
+            # If account not found in authorities, return default structure
+            if not found_account:
+                info(f"ℹ️ Account {address} not found in any authority\n")
+            
+            return account_info
+            
+        except Exception as e:
+            info(f"❌ Error getting account {address}: {e}\n")
+            return {
+                "address": address,
+                "error": str(e),
+                "balances": {},
+                "sequence_number": 0,
+                "is_registered": False,
+                "registration_time": 0,
+                "last_redeemed_sequence": 0
+            }
 
     # ------------------------------------------------------------------
     # Build shard view --------------------------------------------------
@@ -374,13 +459,13 @@ class Bridge:
         if self.running:
             return
 
-        info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
-        
-        # Start authority update thread
-        self._start_authority_update_thread()
+            info(f"🌉 Starting Mesh Internet Bridge on port {self.port}\n")
+            
+            # Start authority update thread
+            self._start_authority_update_thread()
 
-        class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
-            def __init__(self, *args, bridge: "Bridge", **kwargs):
+            class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
+                def __init__(self, *args, bridge: "Bridge", **kwargs):
                 self.bridge = bridge
                 super().__init__(*args, **kwargs)
 
@@ -397,23 +482,23 @@ class Bridge:
             # ------------- routing -------------------------------------
             def do_GET(self):  # noqa: N802
                 if self.path == "/health":
-                    self._json({
-                        "status": "healthy",
-                        "authorities_count": len(self.bridge.authorities),
-                        "timestamp": time.time(),
-                    })
+                    self._json(list(self.bridge.authorities.values()))
+                elif self.path == "/metrics":
+                    # self._json(self.bridge.get_metrics())
+                    self._json({"error": "not found"}, 404)
                 elif self.path == "/authorities":
-                    self._json({
-                        "authorities": list(self.bridge.authorities.values()),
-                        "count": len(self.bridge.authorities),
-                        "timestamp": time.time(),
-                    })
+                    self._json(list(self.bridge.authorities.values()))
                 elif self.path == "/shards":
                     self.bridge.trigger_authority_update()
-                    self._json({
-                        "shards": self.bridge._get_shards(),
-                        "timestamp": time.time(),
-                    })
+                    self._json(self.bridge._get_shards())
+                elif self.path.startswith("/accounts/"):
+                    address = self.path.split("/accounts/")[1]
+                    if address:
+                        self.bridge.trigger_authority_update()
+                        account_info = self.bridge.getAccount(address)
+                        self._json(account_info)
+                    else:
+                        self._json({"error": "Address parameter required"}, 400)
                 else:
                     self._json({"error": "not found"}, 404)
 

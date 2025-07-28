@@ -23,8 +23,8 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
 ## 3  Quick Demo (5 min)
 
 ```bash
-# Start a 5-authority / 3-user mesh with CLI
-sudo python3 -m mn_wifi.examples.meshpay_demo --authorities 5 --clients 3
+# Start a 3-authority mesh with CLI
+sudo python3 -m mn_wifi.examples.meshpay_demo --authorities 3 --clients 0 --internet
 ```
 Inside the CLI you can issue FastPay commands such as:
 ```bash

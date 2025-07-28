@@ -85,8 +85,11 @@ class WiFiAuthority(Station):
         # Initialize the Station base class
         super().__init__(name, **default_params)
 
+        # Configure logging
+        self.logger = AuthorityLogger(name)
+
         # Use the global blockchain client instance
-        self.blockchain_client = BlockchainClient()
+        self.blockchain_client = BlockchainClient(self.logger)
 
         # Create address from mininet-wifi node information
         self.address = Address(
@@ -116,9 +119,6 @@ class WiFiAuthority(Station):
         self._message_handler_thread: Optional[threading.Thread] = None
         self._sync_thread: Optional[threading.Thread] = None
         self._blockchain_sync_thread: Optional[threading.Thread] = None
-        
-        # Configure logging
-        self.logger = AuthorityLogger(name)
         
         # ------------------------------------------------------------------
         # Transport selection (default = TCP for backward-compatibility)

@@ -144,7 +144,7 @@ def create_mesh_network_with_internet(
         
         # Create mesh-internet bridge service, passing host so HTTP API can
         # reuse host.forward_transfer when /transfer is called.
-        bridge = Bridge(gateway, port=gateway_port)
+        bridge = Bridge(gateway, net=net, port=gateway_port)
     
     # Configure mesh networking
     info("*** Configuring IEEE 802.11s mesh\n")
