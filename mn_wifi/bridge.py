@@ -424,6 +424,18 @@ class Bridge:
                 "last_redeemed_sequence": 0
             }
 
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get metrics for the bridge."""
+        return {
+            "online_authorities": len(self.authorities),
+            "total_authorities": len(self.authorities),
+            "network_latency": 1500,
+            "total_transactions": 0,
+            "successful_transactions": 0,
+            "average_confirmation_time": 0,
+            "total_stake": 0,
+        }
+
     # ------------------------------------------------------------------
     # Build shard view --------------------------------------------------
     # ------------------------------------------------------------------
@@ -464,8 +476,8 @@ class Bridge:
             # Start authority update thread
             self._start_authority_update_thread()
 
-            class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
-                def __init__(self, *args, bridge: "Bridge", **kwargs):
+        class _Handler(http.server.BaseHTTPRequestHandler):  # noqa: D401
+            def __init__(self, *args, bridge: "Bridge", **kwargs):
                 self.bridge = bridge
                 super().__init__(*args, **kwargs)
 
@@ -483,9 +495,8 @@ class Bridge:
             def do_GET(self):  # noqa: N802
                 if self.path == "/health":
                     self._json(list(self.bridge.authorities.values()))
-                elif self.path == "/metrics":
-                    # self._json(self.bridge.get_metrics())
-                    self._json({"error": "not found"}, 404)
+                elif self.path == "/network/metrics":
+                    self._json(self.bridge.get_metrics())
                 elif self.path == "/authorities":
                     self._json(list(self.bridge.authorities.values()))
                 elif self.path == "/shards":
