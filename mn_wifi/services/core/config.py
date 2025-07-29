@@ -33,7 +33,7 @@ class Settings():
     
     # API Configuration
     api_host: str = os.getenv("API_HOST", "0.0.0.0")
-    api_port: int = os.getenv("API_PORT", 8000)
+    api_port: int = int(os.getenv("API_PORT", "8000"))
     api_prefix: str = os.getenv("API_PREFIX", "/api/v1")
     
     # CORS Configuration
@@ -50,34 +50,34 @@ class Settings():
     
     # Blockchain Configuration
     rpc_url: str = os.getenv("RPC_URL", "https://node.ghostnet.etherlink.com")
-    chain_id: int = os.getenv("CHAIN_ID", 128123)
+    chain_id: int = int(os.getenv("CHAIN_ID", "128123"))
     chain_name: str = os.getenv("CHAIN_NAME", "Etherlink Testnet")
     backend_private_key: Optional[str] = os.getenv("BACKEND_PRIVATE_KEY", None)
-    blockchain_sync_interval: int = os.getenv("BLOCKCHAIN_SYNC_INTERVAL", 300) # seconds
+    blockchain_sync_interval: int = int(os.getenv("BLOCKCHAIN_SYNC_INTERVAL", "10")) # seconds
 
     # Mesh Network Configuration
     mesh_gateway_url: str = os.getenv("MESH_GATEWAY_URL", "http://10.0.0.254:8080")
     mesh_discovery_enabled: bool = os.getenv("MESH_DISCOVERY_ENABLED", True)
-    mesh_authority_port: int = os.getenv("MESH_AUTHORITY_PORT", 8080)
+    mesh_authority_port: int = int(os.getenv("MESH_AUTHORITY_PORT", "8080"))
     mesh_scan_network: str = os.getenv("MESH_SCAN_NETWORK", "10.0.0.0/8")
     
     # WebSocket Configuration
     ws_enable: bool = os.getenv("WS_ENABLE", True)
     ws_path: str = os.getenv("WS_PATH", "/ws")
-    ws_heartbeat_interval: int = os.getenv("WS_HEARTBEAT_INTERVAL", 30)
-    ws_max_connections: int = os.getenv("WS_MAX_CONNECTIONS", 100)
+    ws_heartbeat_interval: int = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
+    ws_max_connections: int = int(os.getenv("WS_MAX_CONNECTIONS", "100"))
     
     # Token Configuration
     supported_tokens: List[str] = os.getenv("SUPPORTED_TOKENS", ["XTZ", "WTZ", "USDT", "USDC"])
     default_token: str = os.getenv("DEFAULT_TOKEN", "USDT")
-    max_transaction_amount: int = os.getenv("MAX_TRANSACTION_AMOUNT", 10000000)
-    min_transaction_amount: int = os.getenv("MIN_TRANSACTION_AMOUNT", 1)
-    transaction_timeout: float = os.getenv("TRANSACTION_TIMEOUT", 30.0)
+    max_transaction_amount: int = int(os.getenv("MAX_TRANSACTION_AMOUNT", "10000000"))
+    min_transaction_amount: int = int(os.getenv("MIN_TRANSACTION_AMOUNT", "1"))
+    transaction_timeout: float = float(os.getenv("TRANSACTION_TIMEOUT", "30.0"))
     
     # Map Configuration
     default_map_center: List[float] = os.getenv("DEFAULT_MAP_CENTER", [37.7749, -122.4194])
-    default_map_zoom: int = os.getenv("DEFAULT_MAP_ZOOM", 12)
-    map_update_interval: int = os.getenv("MAP_UPDATE_INTERVAL", 5)
+    default_map_zoom: int = int(os.getenv("DEFAULT_MAP_ZOOM", "12"))
+    map_update_interval: int = int(os.getenv("MAP_UPDATE_INTERVAL", "5"))
     authority_marker_colors: Dict[str, str] = {
         "online": os.getenv("AUTHORITY_MARKER_COLORS_ONLINE", "#22c55e"),
         "offline": os.getenv("AUTHORITY_MARKER_COLORS_OFFLINE", "#ef4444"), 
@@ -85,7 +85,7 @@ class Settings():
     }
     
     # Cache Configuration
-    cache_ttl: int = os.getenv("CACHE_TTL", 300)
+    cache_ttl: int = int(os.getenv("CACHE_TTL", "300"))
     
     # Database Configuration
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./meshpay.db")
@@ -98,26 +98,26 @@ class Settings():
     
     # Security Configuration
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-    access_token_expire_minutes: int = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30)
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     
     # Rate Limiting
     rate_limit_enabled: bool = os.getenv("RATE_LIMIT_ENABLED", True)
-    rate_limit_requests_per_minute: int = os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", 60)
-    rate_limit_requests: int = os.getenv("RATE_LIMIT_REQUESTS", 100)
-    rate_limit_window: int = os.getenv("RATE_LIMIT_WINDOW", 60)
+    rate_limit_requests_per_minute: int = int(os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "60"))
+    rate_limit_requests: int = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
+    rate_limit_window: int = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
     
     # Monitoring
     metrics_enabled: bool = os.getenv("METRICS_ENABLED", True)
     health_check_enabled: bool = os.getenv("HEALTH_CHECK_ENABLED", True)
     
     # Authority Discovery Configuration
-    authority_discovery_port: int = os.getenv("AUTHORITY_DISCOVERY_PORT", 8080)
-    authority_timeout: float = os.getenv("AUTHORITY_TIMEOUT", 10.0)
-    min_quorum_size: int = os.getenv("MIN_QUORUM_SIZE", 3)
-    max_authorities: int = os.getenv("MAX_AUTHORITIES", 10)
+    authority_discovery_port: int = int(os.getenv("AUTHORITY_DISCOVERY_PORT", "8080"))
+    authority_timeout: float = float(os.getenv("AUTHORITY_TIMEOUT", "10.0"))
+    min_quorum_size: int = int(os.getenv("MIN_QUORUM_SIZE", "3"))
+    max_authorities: int = int(os.getenv("MAX_AUTHORITIES", "10"))
     network_scan_range: str = os.getenv("NETWORK_SCAN_RANGE", "192.168.1.0/24")
     mesh_bridge_url: str = os.getenv("MESH_BRIDGE_URL", "http://192.168.1.142:8080")
-    mesh_timeout: float = os.getenv("MESH_TIMEOUT", 10.0)
+    mesh_timeout: float = float(os.getenv("MESH_TIMEOUT", "10.0"))
     
     @field_validator('meshpay_contract_address', 'meshpay_authority_contract_address', 
              'usdt_contract_address', 'usdc_contract_address')

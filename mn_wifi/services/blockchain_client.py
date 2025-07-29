@@ -28,17 +28,17 @@ class TokenBalance:
     """Token balance information."""
     token_symbol: str
     token_address: str
-    wallet_balance: str  # In human-readable format
-    meshpay_balance: str  # In human-readable format
-    total_balance: str
+    wallet_balance: int
+    meshpay_balance: int
+    total_balance: int
     decimals: int
 
 @dataclass
 class ContractStats:
     """Overall contract statistics."""
     total_accounts: int
-    total_native_balance: str
-    total_token_balances: Dict[str, str]
+    total_native_balance: int
+    total_token_balances: Dict[str, int]
 
 class BlockchainClient:
     """Client for interacting with Etherlink blockchain and FastPay contracts."""
@@ -121,12 +121,11 @@ class BlockchainClient:
         for token_symbol, token_config in SUPPORTED_TOKENS.items():
             try:
                 token_address = token_config['address']
-                # decimals = 0
-                decimals = token_config['decimals'] if token_config['is_native'] else 0
+                decimals = token_config['decimals']
                 
                 # Initialize balances
-                wallet_balance = "0"
-                meshpay_balance = "0"
+                wallet_balance = 0
+                meshpay_balance = 0
                 
                 # Get wallet balance
                 if token_config['is_native']:
@@ -137,7 +136,7 @@ class BlockchainClient:
                         wallet_balance = self._wei_to_human(wallet_balance_wei, decimals)
                     except Exception as e:
                         self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
-                        wallet_balance = "0"
+                        wallet_balance = 0
                         
                 else:
                     # ERC20 token balance - check if token is actually deployed
@@ -154,17 +153,17 @@ class BlockchainClient:
                                     abi=ERC20ABI
                                 )
                                 wallet_balance_wei = token_contract.functions.balanceOf(address).call()
-                                wallet_balance = self._wei_to_human(wallet_balance_wei, 0)
+                                wallet_balance = self._wei_to_human(wallet_balance_wei, decimals)
                             else:
                                 self.logger.warning(f"{token_symbol} contract not deployed at {token_address}")
-                                wallet_balance = "0"
+                                wallet_balance = 0
                         else:
                             self.logger.warning(f"{token_symbol} contract address not configured")
-                            wallet_balance = "0"
+                            wallet_balance = 0
                             
                     except Exception as e:
                         self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
-                        wallet_balance = "0"
+                        wallet_balance = 0
                 
                 # Get MeshPay balance (only if MeshPay contract is available)
                 if self.meshpay_contract:
@@ -172,17 +171,14 @@ class BlockchainClient:
                         meshpay_balance_wei = self.meshpay_contract.functions.getAccountBalance(
                             address, token_address
                         ).call()
-                        if token_config['is_native']:
-                            meshpay_balance = self._wei_to_human(meshpay_balance_wei, token_config['decimals'])
-                        else:
-                            meshpay_balance = self._wei_to_human(meshpay_balance_wei, 0)
+                        meshpay_balance = self._wei_to_human(meshpay_balance_wei, decimals)
                         
                     except Exception as e:
                         self.logger.error(f"Failed to get {token_symbol} MeshPay balance for {address}: {e}")
-                        meshpay_balance = "0"
+                        meshpay_balance = 0
                 else:
                     self.logger.warning("MeshPay contract not available, using 0 for MeshPay balances")
-                    meshpay_balance = "0"
+                    meshpay_balance = 0
                 
                 # Calculate total
                 total_balance = str(Decimal(wallet_balance) + Decimal(meshpay_balance))
@@ -202,9 +198,9 @@ class BlockchainClient:
                 balances[token_address] = TokenBalance(
                     token_symbol=token_symbol,
                     token_address=token_config['address'],
-                    wallet_balance="0",
-                    meshpay_balance="0",
-                    total_balance="0",
+                    wallet_balance=0,
+                    meshpay_balance=0,
+                    total_balance=0,
                     decimals=token_config['decimals']
                 )
         
@@ -222,12 +218,12 @@ class BlockchainClient:
             
             # Get total balances for each token
             total_token_balances = {}
-            total_native_balance = "0"
+            total_native_balance = 0
             
             for token_symbol, token_config in SUPPORTED_TOKENS.items():
                 token_address = Web3.to_checksum_address(token_config['address'])
                 # Note: totalBalance function was removed, so we'll calculate from individual accounts
-                total_balance = "0"
+                total_balance = 0
                 
                 if token_config['is_native']:
                     total_native_balance = total_balance
@@ -374,9 +370,9 @@ class BlockchainClient:
             self.logger.error(f"Failed to get {event_name} events: {e}")
             return []
     
-    def _wei_to_human(self, wei_amount: int, decimals: int) -> str:
+    def _wei_to_human(self, wei_amount: int, decimals: int) -> int:
         """Convert wei amount to human-readable format."""
-        return str(Decimal(wei_amount) / Decimal(10 ** decimals))
+        return int(Decimal(wei_amount) / Decimal(10 ** decimals))
     
     def _human_to_wei(self, human_amount: Union[str, Decimal], decimals: int) -> int:
         """Convert human-readable amount to wei."""
