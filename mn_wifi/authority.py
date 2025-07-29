@@ -11,6 +11,8 @@ from uuid import UUID, uuid4
 
 from mn_wifi.node import Station
 from mn_wifi.link import IntfWireless
+from mn_wifi.services.core.config import SUPPORTED_TOKENS
+from web3 import Web3
 
 from mn_wifi.baseTypes import (
     AccountOffchainState,
@@ -41,8 +43,9 @@ from mn_wifi.wifiDirect import WiFiDirectTransport
 
 from mn_wifi.metrics import MetricsCollector
 from mn_wifi.authorityLogger import AuthorityLogger
-from mn_wifi.services.blockchain_client import BlockchainClient
+from mn_wifi.services.blockchain_client import BlockchainClient, TokenBalance
 from mn_wifi.services.core.config import settings
+from decimal import Decimal
 
 class WiFiAuthority(Station):
     """Authority node that runs on mininet-wifi host, inheriting from Station."""
@@ -200,9 +203,7 @@ class WiFiAuthority(Station):
         try:
             # Use blockchain client to sync all accounts
             all_accounts_data = await self.blockchain_client.sync_all_accounts()
-            
-            self.logger.info(f"Found {len(all_accounts_data)} registered accounts on blockchain")
-            
+
             # Update local state with blockchain data
             for account_address, balances in all_accounts_data.items():
                 await self._update_local_account_state(account_address, balances)
@@ -210,7 +211,7 @@ class WiFiAuthority(Station):
         except Exception as e:
             self.logger.error(f"Error syncing accounts from blockchain: {e}")
     
-    async def _update_local_account_state(self, account_address: str, balances: Dict[str, int]) -> None:
+    async def _update_local_account_state(self, account_address: str, balances: Dict[str, TokenBalance]) -> None:
         """Update local account state with blockchain data.
         
         Args:
@@ -220,7 +221,7 @@ class WiFiAuthority(Station):
         try:
             # Get account info from blockchain
             account_info = await self.blockchain_client.get_account_info(account_address)
-            
+
             if not account_info or not account_info.is_registered:
                 self.logger.warning(f"Account {account_address} not registered on blockchain")
                 return
@@ -325,7 +326,7 @@ class WiFiAuthority(Station):
         """
         return self.transport.send_message(message, peer_address)
     
-    async def handle_transfer_order(self, transfer_order: TransferOrder) -> TransferResponseMessage:
+    def handle_transfer_order(self, transfer_order: TransferOrder) -> TransferResponseMessage:
         """Handle transfer order from client.
         
         Args:
@@ -355,8 +356,15 @@ class WiFiAuthority(Station):
                         authority_signature=self.state.authority_signature
                     )
             
-            token_balance = sender_account.balances.get(transfer_order.token_address, 0)
-            if token_balance < transfer_order.amount:
+            token_balance = sender_account.balances.get(transfer_order.token_address)   
+            meshpay_balance = int(token_balance.meshpay_balance)
+
+            for token_symbol, token_config in SUPPORTED_TOKENS.items():
+                if token_config['address'] == transfer_order.token_address:
+                    parsed_amount = int(Decimal(str(transfer_order.amount)) / (10 ** token_config['decimals']))
+                    break
+            
+            if meshpay_balance < parsed_amount:
                 return TransferResponseMessage(
                     transfer_order=transfer_order,
                     success=False,
@@ -628,7 +636,7 @@ class WiFiAuthority(Station):
         
         # Check sequence number
         sender_account = self.state.accounts.get(transfer_order.sender)
-        if sender_account and transfer_order.sequence_number < sender_account.sequence_number:
+        if sender_account and int(transfer_order.sequence_number) < int(sender_account.sequence_number):
             return False
         
         return True
@@ -780,8 +788,6 @@ class WiFiAuthority(Station):
                     asyncio.run(self.sync_account_from_blockchain())
                 except Exception as e:
                     self.logger.error(f"Error in blockchain sync cycle: {e}")
-                
-                self.logger.info(f"Completed blockchain sync cycle for {len(self.state.accounts)} accounts")
                 
                 # Mark that we've completed the first run
                 first_run = False

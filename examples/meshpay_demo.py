@@ -162,13 +162,15 @@ def create_mesh_network_with_internet(
     for i in range(1, num_clients + 1):
         net.addLink(clients[i-1], cls=mesh, ssid='meshNet',
                 intf=f'user{i}-wlan0', channel=5, ht_cap='HT40+')
-
-    # Add gateway connection if internet is enabled
-    if enable_internet:
-        info("*** Configuring internet gateway connections\n")
-        # # Connect first authority to the internet gateway host via wired link
-        for i in range(1, num_authorities + 1):
-            net.addLink(authorities[i-1], gateway, cls=TCLink)
+    net.addLink(gateway, cls=mesh, ssid='meshNet',
+                intf=f'gw-wlan0', channel=5, ht_cap='HT40+')
+    
+    # # Add gateway connection if internet is enabled
+    # if enable_internet:
+    #     info("*** Configuring internet gateway connections\n")
+    #     # # Connect first authority to the internet gateway host via wired link
+    #     for i in range(1, num_authorities + 1):
+    #         net.addLink(authorities[i-1], gateway, cls=TCLink)
 
 
     # Configure mobility if enabled
@@ -214,6 +216,7 @@ def configure_internet_access(
     # Register authorities with bridge for HTTP API access
     for auth in authorities:
         bridge.register_authority(auth)
+        gateway.register_authority(auth)
     
     # The NAT routing is automatically configured by mn-wifi's addNAT method
     # which sets default routes for all stations in the network
@@ -285,13 +288,13 @@ def main() -> None:
         info("*** Building enhanced mesh network\n")
         net.build()
         
-        info("*** Assigning IPs to wired interfaces for auth-gateway link\n")
-        for i, auth in enumerate(authorities, start=1):
-            auth_ip = f"192.168.100.{i}"
-            gw_ip = f"192.168.100.{10 + i}"  
+        # info("*** Assigning IPs to wired interfaces for auth-gateway link\n")
+        # for i, auth in enumerate(authorities, start=1):
+        #     auth_ip = f"192.168.100.{i}"
+        #     gw_ip = f"192.168.100.{10 + i}"  
 
-            auth.setIP(auth_ip + '/24', intf=f'{auth.name}-eth1')
-            gateway.setIP(gw_ip + '/24', intf=f'gw-eth{i}')
+        #     auth.setIP(auth_ip + '/24', intf=f'{auth.name}-eth1')
+        #     gateway.setIP(gw_ip + '/24', intf=f'gw-eth{i}')
 
         # Configure internet access if enabled
         if args.internet and bridge:
@@ -307,8 +310,8 @@ def main() -> None:
         
         gateway.start_gateway_services()
         
-        # Set up gateway multi-interface forwarding
-        setup_gateway_multi_interface(gateway, authorities)
+        # # Set up gateway multi-interface forwarding
+        # setup_gateway_multi_interface(gateway, authorities)
 
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")

@@ -23,21 +23,13 @@ from mn_wifi.gateway import Gateway
 import dataclasses
 from uuid import UUID
 from enum import Enum
-from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
+from mn_wifi.services.core.config import settings
+from mn_wifi.bridgeLogger import BridgeLogger
+from mn_wifi.services.json import JSONable
+from mn_wifi.services.shard import SHARD_NAMES
 
 __all__ = ["Bridge"]
 
-# ---------------------------------------------------------------------------
-# Basic static shard list – demo uses round-robin assignment               
-# ---------------------------------------------------------------------------
-
-SHARD_NAMES: list[str] = [
-    "Alpha Shard",
-    "Beta Shard",
-    "Gamma Shard",
-    "Delta Shard",
-    "Epsilon Shard",
-]
 
 
 class Bridge:
@@ -55,6 +47,7 @@ class Bridge:
             update_interval: Interval in seconds for authority updates (default: 30)
         """
         self.port = port
+        self.logger = BridgeLogger(name="bridge")
         self.gateway: Optional[Gateway] = gateway
         self.net = net  # Store the network instance
         self.authorities: Dict[str, Dict[str, Any]] = {}
@@ -63,6 +56,7 @@ class Bridge:
         self.update_thread: Optional[threading.Thread] = None
         self.update_interval = settings.blockchain_sync_interval 
         self.running = False
+        self.jsonable = JSONable()
 
     def get_authorities_from_network(self) -> List[WiFiAuthority]:
         """Get all authority nodes from the network.
@@ -94,7 +88,7 @@ class Bridge:
         amount = body.get("amount")
         sequence_number = body.get("sequence_number", 1)
         signature = body.get("signature")
-
+        
         # Basic sanity checks
         if sender is None or recipient is None or token_address is None or amount is None:
             return {
@@ -126,7 +120,7 @@ class Bridge:
                     "token_address": token_address,
                     "amount": amount_int,
                     "sequence_number": sequence_number,
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
                 }
             else:
                 # Fallback: create a simple transfer order and broadcast it
@@ -178,43 +172,6 @@ class Bridge:
     # ---------------------------------------------------------------------
     # Registration helpers
     # ---------------------------------------------------------------------
-
-    # Recursive JSON-safe serialiser ------------------------------------
-
-    def _to_jsonable(self, obj: Any) -> Any:  # noqa: ANN401 – generic helper
-        """Return *obj* converted into JSON-serialisable structures.
-
-        • dataclasses → dict (recursively processed)
-        • set → list (sorted for determinism when items are plain types)  
-        • UUID → str  
-        • list / tuple / dict processed recursively  
-        • everything else returned unchanged.
-        """
-
-        if dataclasses.is_dataclass(obj):
-            return {k: self._to_jsonable(v) for k, v in dataclasses.asdict(obj).items()}
-
-        if isinstance(obj, dict):
-            return {k: self._to_jsonable(v) for k, v in obj.items()}
-
-        if isinstance(obj, (list, tuple)):
-            return [self._to_jsonable(v) for v in obj]
-
-        if isinstance(obj, set):
-            # Try to return a deterministic ordering when items are simple types
-            try:
-                return [self._to_jsonable(v) for v in sorted(obj)]
-            except Exception:
-                return [self._to_jsonable(v) for v in obj]
-
-        if isinstance(obj, UUID):
-            return str(obj)
-
-        if isinstance(obj, Enum):
-            return obj.value
-
-        return obj
-
     def register_authority(self, authority: WiFiAuthority) -> None:  # noqa: D401
         """Add/refresh *authority* entry used by the JSON API."""
 
@@ -241,7 +198,7 @@ class Bridge:
                 "node_type": authority.address.node_type.value,
             },
             "status": "online",
-            "state": self._to_jsonable(authority.state),
+            "state": self.jsonable._to_jsonable(authority.state),
         }
 
         # Assign authority to a shard (round-robin based on index) ---------
@@ -273,7 +230,7 @@ class Bridge:
                 "node_type": authority.address.node_type.value,
             },
             "status": "online",
-            "state": self._to_jsonable(authority.state),
+            "state": self.jsonable._to_jsonable(authority.state),
             "shard": shard_name,  # Preserve existing shard assignment
         }
 
@@ -350,43 +307,7 @@ class Bridge:
         """
         try:
             # Initialize default account info structure
-            account_info = {
-                "address": address,
-                "balances": {
-                    "USDT": {
-                        "token_symbol": "USDT",
-                        "token_address": SUPPORTED_TOKENS["USDT"]["address"],
-                        "wallet_balance": 0,
-                        "meshpay_balance": 0,
-                        "total_balance": 0
-                    },
-                    "USDC": {
-                        "token_symbol": "USDC", 
-                        "token_address": SUPPORTED_TOKENS["USDC"]["address"],
-                        "wallet_balance": 0,
-                        "meshpay_balance": 0,
-                        "total_balance": 0
-                    },
-                    "XTZ": {
-                        "token_symbol": "XTZ",
-                        "token_address": SUPPORTED_TOKENS["XTZ"]["address"],
-                        "wallet_balance": 0,
-                        "meshpay_balance": 0,
-                        "total_balance": 0
-                    },
-                    "WTZ": {
-                        "token_symbol": "WTZ",
-                        "token_address": SUPPORTED_TOKENS["WTZ"]["address"],
-                        "wallet_balance": 0,
-                        "meshpay_balance": 0,
-                        "total_balance": 0
-                    }
-                },
-                "is_registered": False,
-                "sequence_number": 0,
-                "registration_time": 0,
-                "last_redeemed_sequence": 0
-            }
+            account_info = {}
             
             # Search for account in all authorities
             found_account = False
@@ -409,7 +330,7 @@ class Bridge:
             # If account not found in authorities, return default structure
             if not found_account:
                 info(f"ℹ️ Account {address} not found in any authority\n")
-            
+
             return account_info
             
         except Exception as e:

@@ -28,17 +28,17 @@ class TokenBalance:
     """Token balance information."""
     token_symbol: str
     token_address: str
-    wallet_balance: int
-    meshpay_balance: int
-    total_balance: int
+    wallet_balance: float
+    meshpay_balance: float
+    total_balance: float
     decimals: int
 
 @dataclass
 class ContractStats:
     """Overall contract statistics."""
     total_accounts: int
-    total_native_balance: int
-    total_token_balances: Dict[str, int]
+    total_native_balance: float
+    total_token_balances: Dict[str, float]
 
 class BlockchainClient:
     """Client for interacting with Etherlink blockchain and FastPay contracts."""
@@ -109,8 +109,103 @@ class BlockchainClient:
             self.logger.error(f"Failed to get account info for {address}: {e}")
             return None
     
-    async def get_account_balances(self, address: str) -> List[TokenBalance]:
-        """Get all token balances for an account."""
+    async def get_onchain_balance(self, address: str, token_symbol: str, token_config: Dict[str, Any]) -> float:
+        """Get on-chain wallet balance for a specific token.
+        
+        Args:
+            address: The account address
+            token_symbol: The token symbol (e.g., 'XTZ', 'USDT')
+            token_config: Token configuration from SUPPORTED_TOKENS
+            
+        Returns:
+            Balance in human-readable format
+        """
+        if not self.w3:
+            self.logger.error("Web3 not initialized")
+            return 0.0
+        
+        try:
+            token_address = token_config['address']
+            decimals = token_config['decimals']
+            
+            if token_config['is_native']:
+                # Native XTZ balance
+                try:
+                    checksum_address = Web3.to_checksum_address(address)
+                    wallet_balance_wei = self.w3.eth.get_balance(checksum_address)
+                    return self._wei_to_human(wallet_balance_wei, decimals)
+                except Exception as e:
+                    self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
+                    return 0.0
+            else:
+                # ERC20 token balance
+                try:
+                    if token_address:
+                        token_address_checksum = Web3.to_checksum_address(token_address)
+                        
+                        # Check if contract exists
+                        code = self.w3.eth.get_code(token_address_checksum)
+                        if code and code != b'':
+                            # Contract exists, try to get balance
+                            token_contract = self.w3.eth.contract(
+                                address=token_address_checksum,
+                                abi=ERC20ABI
+                            )
+                            wallet_balance_wei = token_contract.functions.balanceOf(address).call()
+                            return self._wei_to_human(wallet_balance_wei, decimals)
+                        else:
+                            self.logger.warning(f"{token_symbol} contract not deployed at {token_address}")
+                            return 0.0
+                    else:
+                        self.logger.warning(f"{token_symbol} contract address not configured")
+                        return 0.0
+                        
+                except Exception as e:
+                    self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
+                    return 0.0
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to get onchain balance for {token_symbol}: {e}")
+            return 0.0
+
+    async def get_meshpay_balance(self, account_address: str, token_address: str, decimals: int) -> float:
+        """Get MeshPay balance for a specific token.
+        
+        Args:
+            account_address: The account address
+            token_address: The token address (use NATIVE_TOKEN for XTZ)
+            decimals: Token decimals for conversion
+            
+        Returns:
+            Balance in human-readable format
+        """
+        if not self.meshpay_contract:
+            self.logger.warning("MeshPay contract not available, using 0 for MeshPay balances")
+            return 0.0
+        
+        try:
+            account_address = Web3.to_checksum_address(account_address)
+            token_address = Web3.to_checksum_address(token_address)
+            
+            meshpay_balance_wei = self.meshpay_contract.functions.getAccountBalance(
+                account_address, token_address
+            ).call()
+            
+            return self._wei_to_human(meshpay_balance_wei, decimals)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get MeshPay balance for {account_address} token {token_address}: {e}")
+            return 0.0
+
+    async def get_account_balances(self, address: str) -> Dict[str, TokenBalance]:
+        """Get all token balances for an account.
+        
+        Args:
+            address: The account address
+            
+        Returns:
+            Dictionary mapping token addresses to TokenBalance objects
+        """
         if not self.w3:
             self.logger.error("Web3 not initialized")
             return {}
@@ -123,65 +218,14 @@ class BlockchainClient:
                 token_address = token_config['address']
                 decimals = token_config['decimals']
                 
-                # Initialize balances
-                wallet_balance = 0
-                meshpay_balance = 0
+                # Get on-chain wallet balance
+                wallet_balance = await self.get_onchain_balance(address, token_symbol, token_config)
                 
-                # Get wallet balance
-                if token_config['is_native']:
-                    # Native XTZ balance - this should always work
-                    try:
-                        checksum_address = Web3.to_checksum_address(address)
-                        wallet_balance_wei = self.w3.eth.get_balance(checksum_address)
-                        wallet_balance = self._wei_to_human(wallet_balance_wei, decimals)
-                    except Exception as e:
-                        self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
-                        wallet_balance = 0
-                        
-                else:
-                    # ERC20 token balance - check if token is actually deployed
-                    try:
-                        if token_address:
-                            token_address_checksum = Web3.to_checksum_address(token_address)
-                            
-                            # Check if contract exists
-                            code = self.w3.eth.get_code(token_address_checksum)
-                            if code and code != b'':
-                                # Contract exists, try to get balance
-                                token_contract = self.w3.eth.contract(
-                                    address=token_address_checksum,
-                                    abi=ERC20ABI
-                                )
-                                wallet_balance_wei = token_contract.functions.balanceOf(address).call()
-                                wallet_balance = self._wei_to_human(wallet_balance_wei, decimals)
-                            else:
-                                self.logger.warning(f"{token_symbol} contract not deployed at {token_address}")
-                                wallet_balance = 0
-                        else:
-                            self.logger.warning(f"{token_symbol} contract address not configured")
-                            wallet_balance = 0
-                            
-                    except Exception as e:
-                        self.logger.error(f"Failed to get {token_symbol} wallet balance for {address}: {e}")
-                        wallet_balance = 0
-                
-                # Get MeshPay balance (only if MeshPay contract is available)
-                if self.meshpay_contract:
-                    try:
-                        meshpay_balance_wei = self.meshpay_contract.functions.getAccountBalance(
-                            address, token_address
-                        ).call()
-                        meshpay_balance = self._wei_to_human(meshpay_balance_wei, decimals)
-                        
-                    except Exception as e:
-                        self.logger.error(f"Failed to get {token_symbol} MeshPay balance for {address}: {e}")
-                        meshpay_balance = 0
-                else:
-                    self.logger.warning("MeshPay contract not available, using 0 for MeshPay balances")
-                    meshpay_balance = 0
+                # Get MeshPay balance
+                meshpay_balance = await self.get_meshpay_balance(address, token_address, decimals)
                 
                 # Calculate total
-                total_balance = str(Decimal(wallet_balance) + Decimal(meshpay_balance))
+                total_balance = float(Decimal(wallet_balance) + Decimal(meshpay_balance))
                 
                 balances[token_address] = TokenBalance(
                     token_symbol=token_symbol,
@@ -198,9 +242,9 @@ class BlockchainClient:
                 balances[token_address] = TokenBalance(
                     token_symbol=token_symbol,
                     token_address=token_config['address'],
-                    wallet_balance=0,
-                    meshpay_balance=0,
-                    total_balance=0,
+                    wallet_balance=0.0,
+                    meshpay_balance=0.0,
+                    total_balance=0.0,
                     decimals=token_config['decimals']
                 )
         
@@ -253,34 +297,7 @@ class BlockchainClient:
             self.logger.error(f"Failed to get registered accounts: {e}")
             return []
     
-    async def get_meshpay_balance(self, account_address: str, token_address: str) -> int:
-        """Get account balance for a specific token.
-        
-        Args:
-            account_address: The account address
-            token_address: The token address (use NATIVE_TOKEN for XTZ)
-            
-        Returns:
-            Balance in wei
-        """
-        if not self.meshpay_contract:
-            self.logger.error("FastPay contract not initialized")
-            return 0
-        
-        try:
-            account_address = Web3.to_checksum_address(account_address)
-            token_address = Web3.to_checksum_address(token_address)
-            
-            balance = self.meshpay_contract.functions.getAccountBalance(
-                account_address, token_address
-            ).call()
-            
-            return balance
-        except Exception as e:
-            self.logger.error(f"Failed to get balance for {account_address} token {token_address}: {e}")
-            return 0
-    
-    async def sync_all_accounts(self) -> Dict[str, Dict[str, int]]:
+    async def sync_all_accounts(self) -> Dict[str, Dict[str, float]]:
         """Sync all registered accounts with their balances for all supported tokens.
         
         Returns:
@@ -293,7 +310,6 @@ class BlockchainClient:
         try:
             # Get all registered accounts
             registered_accounts = await self.get_registered_accounts()
-            self.logger.info(f"Found {len(registered_accounts)} registered accounts on blockchain")
             
             # Sync each account
             all_accounts_data = {}
@@ -302,21 +318,20 @@ class BlockchainClient:
                 if account_data:
                     all_accounts_data[account_address] = account_data
             
-            self.logger.info(f"Successfully synced {len(all_accounts_data)} accounts")
             return all_accounts_data
             
         except Exception as e:
             self.logger.error(f"Error syncing all accounts from blockchain: {e}")
             return {}
     
-    async def _sync_single_account(self, account_address: str) -> Optional[Dict[str, int]]:
+    async def _sync_single_account(self, account_address: str) -> Optional[Dict[str, float]]:
         """Sync a single account's state from blockchain.
         
         Args:
             account_address: The account address to sync
             
         Returns:
-            Dictionary mapping token addresses to balances, or None if failed
+            Dictionary mapping token addresses to total balances, or None if failed
         """
         try:
             # Get account info from blockchain
@@ -328,7 +343,6 @@ class BlockchainClient:
 
             # Get balances for all supported tokens
             balances = await self.get_account_balances(account_address)
-            self.logger.debug(f"Synced account {account_address} with {len(balances)} token balances")
             return balances
 
         except Exception as e:
@@ -370,13 +384,13 @@ class BlockchainClient:
             self.logger.error(f"Failed to get {event_name} events: {e}")
             return []
     
-    def _wei_to_human(self, wei_amount: int, decimals: int) -> int:
+    def _wei_to_human(self, wei_amount: int, decimals: int) -> float:
         """Convert wei amount to human-readable format."""
-        return int(Decimal(wei_amount) / Decimal(10 ** decimals))
+        return float(Decimal(wei_amount) / Decimal(10 ** decimals))
     
     def _human_to_wei(self, human_amount: Union[str, Decimal], decimals: int) -> int:
         """Convert human-readable amount to wei."""
-        return int(Decimal(human_amount) * Decimal(10 ** decimals))
+        return float(Decimal(human_amount) * Decimal(10 ** decimals))
     
     async def health_check(self) -> Dict[str, Any]:
         """Check blockchain connection health."""

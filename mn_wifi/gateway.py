@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from uuid import uuid4
 from dataclasses import dataclass
 from mininet.log import info
+from queue import Queue
 
 from mn_wifi.baseTypes import (
     Address,
@@ -42,7 +43,8 @@ from mn_wifi.tcp import TCPTransport
 from mn_wifi.udp import UDPTransport
 from mn_wifi.wifiDirect import WiFiDirectTransport
 from mn_wifi.clientLogger import ClientLogger
-
+from mn_wifi.services.json import JSONable
+from mn_wifi.services.shard import SHARD_NAMES
 
 @dataclass
 class AuthorityInterface:
@@ -108,7 +110,7 @@ class Gateway(Station):
             port=port,
             node_type=NodeType.GATEWAY,  
         )
-
+        self.authorities: Dict[str, Dict[str, Any]] = {}
         # Transport initialization
         if transport is not None:
             self.transport = transport
@@ -124,11 +126,12 @@ class Gateway(Station):
 
         # Logger
         self.logger = ClientLogger(name)
-        
+        self.message_queue: Queue[Message] = Queue()
         # Gateway state - enhanced for multi-interface support
         self._authority_interfaces: Dict[str, AuthorityInterface] = {}  # auth_name -> interface_info
         self._running = False
-
+        self.jsonable = JSONable()
+        
     def start_gateway_services(self) -> bool:
         """Start the gateway services.
         
@@ -217,16 +220,39 @@ class Gateway(Station):
         self._authority_interfaces[authority_name] = auth_interface
         self.logger.info(f"Registered authority {authority_name} via {interface_name} ({gateway_ip} <-> {authority_ip})")
 
-    def register_authorities(self, authorities: List[Address]) -> None:
-        """Register authority addresses for forwarding (legacy method for backward compatibility).
-        
-        Args:
-            authorities: List of authority addresses to register.
-        """
-        # This method is kept for backward compatibility
-        # In the new multi-interface setup, use register_authority_interface instead
-        for auth_address in authorities:
-            self.logger.warning(f"Legacy registration of {auth_address.node_id} - use register_authority_interface for multi-interface support")
+    def register_authority(self, authority: WiFiAuthority) -> None:  # noqa: D401
+        """Add/refresh *authority* entry used by the JSON API."""
+
+        def _serialise_account(acc):  # type: ignore[ann-type]
+            return {
+                "address": acc.address,
+                "balances": acc.balances,
+                "sequence_number": acc.sequence_number,
+                "last_update": acc.last_update,
+            }
+
+        accounts = {
+            addr: _serialise_account(acc)
+            for addr, acc in authority.state.accounts.items()
+        }
+
+        self.authorities[authority.name] = {
+            "name": authority.name,
+            "ip": authority.IP(),
+            "address": {
+                "node_id": authority.address.node_id,
+                "ip_address": authority.address.ip_address,
+                "port": authority.address.port,
+                "node_type": authority.address.node_type.value,
+            },
+            "status": "online",
+            "state": self.jsonable._to_jsonable(authority.state),
+        }
+
+        # Assign authority to a shard (round-robin based on index) ---------
+        idx = len(self.authorities) - 1  # current index after append
+        shard_name = SHARD_NAMES[idx % len(SHARD_NAMES)]
+        self.authorities[authority.name]["shard"] = shard_name
 
     def get_transfer_order(self, body: Dict[str, Any]) -> Tuple[str, str, str, int, int, str]:
         """Get a transfer order from the body.
@@ -264,10 +290,6 @@ class Gateway(Station):
         Returns:
             True if transfer was forwarded successfully, False otherwise.
         """
-        if not self._authority_interfaces:
-            self.logger.error("No authorities registered for forwarding")
-            return False
-
         # Create transfer order
         order = TransferOrder(
             order_id=uuid4(),
@@ -303,27 +325,34 @@ class Gateway(Station):
             True if at least one authority received the message, False otherwise.
         """
         self.logger.info(
-            f"Forwarding transfer request to {len(self._authority_interfaces)} authorities via dedicated interfaces"
+            f"Forwarding transfer request to {len(self.authorities)} authorities"
         )
 
         successes = 0
-        for auth_name, auth_interface in self._authority_interfaces.items():
-            # Create a fresh message per authority with interface-specific address
+        for auth_name, auth_data in self.authorities.items():
+            # Create Address object from auth_data
+            recipient_address = Address(
+                node_id=auth_data["name"],
+                ip_address=auth_data["ip"],
+                port=auth_data["address"]["port"],
+                node_type=NodeType(auth_data["address"]["node_type"]),
+            )
+            
             msg = Message(
-                message_id=uuid4(),
+                message_id=transfer_request.message_id,
                 message_type=transfer_request.message_type,
                 sender=transfer_request.sender,
-                recipient=auth_interface.authority_address,  # Use interface-specific address
-                timestamp=time.time(),
+                recipient=recipient_address,  
+                timestamp=transfer_request.timestamp,
                 payload=transfer_request.payload,
             )
-
-            # Use the interface-specific transport
-            if auth_interface.transport.send_message(msg, auth_interface.authority_address):
+            
+            # Use the interface-specific transport with the correct interface binding
+            if self.transport.send_message(msg, recipient_address):
                 successes += 1
-                self.logger.debug(f"Forwarded transfer to {auth_name} via {auth_interface.interface_name}")
+                self.logger.debug(f"Forwarded transfer to {auth_name}")
             else:
-                self.logger.warning(f"Failed to forward to {auth_name} via {auth_interface.interface_name}")
+                self.logger.warning(f"Failed to forward to {auth_name}")
 
         if successes == 0:
             self.logger.error("Failed to forward transfer request to any authority")
@@ -346,10 +375,6 @@ class Gateway(Station):
         Returns:
             True if confirmation was forwarded successfully, False otherwise.
         """
-        if not self._authority_interfaces:
-            self.logger.error("No authorities registered for forwarding")
-            return False
-
         # Create confirmation order
         confirmation = ConfirmationOrder(
             order_id=uuid4(),
