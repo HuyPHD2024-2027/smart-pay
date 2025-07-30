@@ -277,19 +277,7 @@ class Gateway(Station):
         amount: int,
         sequence_number: int = 1,
         signature: Optional[str] = None,
-    ) -> bool:
-        """Forward a transfer order from a client to all authorities.
-        
-        Args:
-            sender: Sender account identifier.
-            recipient: Recipient account identifier.
-            token_address: Token address for the transfer.
-            amount: Amount to transfer.
-            sequence_number: Sequence number for the transfer.
-            signature: Signature for the transfer.
-        Returns:
-            True if transfer was forwarded successfully, False otherwise.
-        """
+    ) -> Dict[str, Any]:
         # Create transfer order
         order = TransferOrder(
             order_id=uuid4(),
@@ -313,22 +301,37 @@ class Gateway(Station):
             payload=request.to_payload(),
         )
         
-        return self._broadcast_transfer_request(message)
-    
-    def _broadcast_transfer_request(self, transfer_request: Message) -> bool:
-        """Broadcast a transfer request to all registered authorities via their specific interfaces.
+        # Get broadcast results
+        broadcast_results = self._broadcast_transfer_request(message)
         
-        Args:
-            transfer_request: Transfer request message to broadcast.
-            
-        Returns:
-            True if at least one authority received the message, False otherwise.
-        """
+        # Add transfer details to the results
+        broadcast_results["transfer_details"] = {
+            "sender": sender,
+            "recipient": recipient,
+            "token_address": token_address,
+            "amount": amount,
+            "sequence_number": sequence_number,
+            "order_id": str(order.order_id),
+            "timestamp": order.timestamp
+        }
+        
+        return broadcast_results
+    
+    def _broadcast_transfer_request(self, transfer_request: Message) -> Dict[str, Any]:
         self.logger.info(
             f"Forwarding transfer request to {len(self.authorities)} authorities"
         )
 
-        successes = 0
+        # Default return structure
+        results = {
+            "success": False,
+            "total_authorities": len(self.authorities),
+            "successful_authorities": 0,
+            "failed_authorities": 0,
+            "authority_results": {},
+            "timestamp": time.time()
+        }
+        
         for auth_name, auth_data in self.authorities.items():
             # Create Address object from auth_data
             recipient_address = Address(
@@ -347,34 +350,45 @@ class Gateway(Station):
                 payload=transfer_request.payload,
             )
             
+            # Track individual authority result
+            auth_result = {
+                "success": False,
+                "error": None,
+                "timestamp": time.time()
+            }
+            
             # Use the interface-specific transport with the correct interface binding
-            if self.transport.send_message(msg, recipient_address):
-                successes += 1
-                self.logger.debug(f"Forwarded transfer to {auth_name}")
-            else:
-                self.logger.warning(f"Failed to forward to {auth_name}")
+            try:
+                if self.transport.send_message(msg, recipient_address):
+                    auth_result["success"] = True
+                    results["successful_authorities"] += 1
+                    self.logger.debug(f"Forwarded transfer to {auth_name}")
+                else:
+                    auth_result["error"] = "Transport send failed"
+                    results["failed_authorities"] += 1
+                    self.logger.warning(f"Failed to forward to {auth_name}")
+            except Exception as e:
+                auth_result["error"] = str(e)
+                results["failed_authorities"] += 1
+                self.logger.error(f"Exception while forwarding to {auth_name}: {e}")
+            
+            results["authority_results"][auth_name] = auth_result
 
-        if successes == 0:
+        # Overall success if at least one authority received the message
+        results["success"] = results["successful_authorities"] > 0
+
+        if results["successful_authorities"] == 0:
             self.logger.error("Failed to forward transfer request to any authority")
-            return False
+        else:
+            self.logger.info(f"Transfer request forwarded to {results['successful_authorities']} / {results['total_authorities']} authorities")
 
-        self.logger.info(f"Transfer request forwarded to {successes} / {len(self._authority_interfaces)} authorities")
-        return True
+        return results
 
     def forward_confirmation(
         self,
         transfer_order: TransferOrder,
         authority_signatures: List[str],
-    ) -> bool:
-        """Forward a confirmation order to all authorities via their specific interfaces.
-        
-        Args:
-            transfer_order: The transfer order to confirm.
-            authority_signatures: List of authority signatures for the confirmation.
-            
-        Returns:
-            True if confirmation was forwarded successfully, False otherwise.
-        """
+    ) -> Dict[str, Any]:
         # Create confirmation order
         confirmation = ConfirmationOrder(
             order_id=uuid4(),
@@ -386,8 +400,23 @@ class Gateway(Station):
 
         request = ConfirmationRequestMessage(confirmation_order=confirmation)
 
+        # Default return structure
+        results = {
+            "success": False,
+            "total_authorities": len(self._authority_interfaces),
+            "successful_authorities": 0,
+            "failed_authorities": 0,
+            "authority_results": {},
+            "confirmation_details": {
+                "order_id": str(confirmation.order_id),
+                "transfer_order_id": str(transfer_order.order_id),
+                "authority_signatures": authority_signatures,
+                "timestamp": confirmation.timestamp
+            },
+            "timestamp": time.time()
+        }
+
         # Send to every authority via their specific interface
-        successes = 0
         for auth_name, auth_interface in self._authority_interfaces.items():
             msg = Message(
                 message_id=uuid4(),
@@ -398,19 +427,39 @@ class Gateway(Station):
                 payload=request.to_payload(),
             )
             
+            # Track individual authority result
+            auth_result = {
+                "success": False,
+                "error": None,
+                "timestamp": time.time()
+            }
+            
             # Use the interface-specific transport
-            if auth_interface.transport.send_message(msg, auth_interface.authority_address):
-                successes += 1
-                self.logger.debug(f"Forwarded confirmation to {auth_name} via {auth_interface.interface_name}")
-            else:
-                self.logger.warning(f"Failed to forward confirmation to {auth_name} via {auth_interface.interface_name}")
+            try:
+                if auth_interface.transport.send_message(msg, auth_interface.authority_address):
+                    auth_result["success"] = True
+                    results["successful_authorities"] += 1
+                    self.logger.debug(f"Forwarded confirmation to {auth_name} via {auth_interface.interface_name}")
+                else:
+                    auth_result["error"] = "Transport send failed"
+                    results["failed_authorities"] += 1
+                    self.logger.warning(f"Failed to forward confirmation to {auth_name} via {auth_interface.interface_name}")
+            except Exception as e:
+                auth_result["error"] = str(e)
+                results["failed_authorities"] += 1
+                self.logger.error(f"Exception while forwarding confirmation to {auth_name}: {e}")
+            
+            results["authority_results"][auth_name] = auth_result
 
-        if successes == 0:
+        # Overall success if at least one authority received the message
+        results["success"] = results["successful_authorities"] > 0
+
+        if results["successful_authorities"] == 0:
             self.logger.error("Failed to forward confirmation to any authority")
-            return False
+        else:
+            self.logger.info(f"Confirmation forwarded to {results['successful_authorities']} / {results['total_authorities']} authorities")
 
-        self.logger.info(f"Confirmation forwarded to {successes} / {len(self._authority_interfaces)} authorities")
-        return True
+        return results
 
     def get_authority_count(self) -> int:
         """Get the number of registered authorities.

@@ -74,12 +74,28 @@ class Bridge:
         return authorities
 
     def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a transfer order through the gateway.
-
-        The JSON body must include ``sender``, ``recipient``, ``token_address`` and ``amount``.
-        The helper performs basic validation and returns a JSON-serialisable
-        response containing ``success`` and optional ``error``.
-        """
+        # Default return structure
+        default_response = {
+            "success": False,
+            "error": None,
+            "transfer_details": {
+                "sender": None,
+                "recipient": None,
+                "token_address": None,
+                "amount": None,
+                "sequence_number": None,
+                "order_id": None,
+                "timestamp": None
+            },
+            "authority_processing": {
+                "total_authorities": 0,
+                "successful_authorities": 0,
+                "failed_authorities": 0,
+                "success_rate": 0.0,
+                "authority_results": {}
+            },
+            "timestamp": time.time()
+        }
 
         # Extract and validate required fields
         sender = body.get("sender")
@@ -91,37 +107,52 @@ class Bridge:
         
         # Basic sanity checks
         if sender is None or recipient is None or token_address is None or amount is None:
-            return {
-                "success": False, 
-                "error": "missing_fields", 
-                "required": ["sender", "recipient", "token_address", "amount"]
-            }
+            default_response["error"] = "missing_fields"
+            default_response["required"] = ["sender", "recipient", "token_address", "amount"]
+            return default_response
 
         try:
             amount_int = int(amount)
             if amount_int <= 0:
-                return {"success": False, "error": "amount_must_be_positive"}
+                default_response["error"] = "amount_must_be_positive"
+                return default_response
         except (ValueError, TypeError):
-            return {"success": False, "error": "amount_not_int"}
+            default_response["error"] = "amount_not_int"
+            return default_response
 
         # Validate token address format
         if not token_address.startswith("0x"):
-            return {"success": False, "error": "invalid_token_address_format"}
+            default_response["error"] = "invalid_token_address_format"
+            return default_response
 
         # Execute the transfer using the gateway
         try:
             if self.gateway and hasattr(self.gateway, 'forward_transfer'):
-                # Use gateway's forward_transfer method if available
-                success = self.gateway.forward_transfer(sender, recipient, token_address, amount_int, sequence_number)
-                return {
-                    "success": bool(success), 
-                    "sender": sender, 
-                    "recipient": recipient, 
-                    "token_address": token_address,
-                    "amount": amount_int,
-                    "sequence_number": sequence_number,
-                    "timestamp": time.time(),
+                # Use gateway's forward_transfer method to get detailed results
+                gateway_results = self.gateway.forward_transfer(
+                    sender, recipient, token_address, amount_int, sequence_number, signature
+                )
+                
+                # Update default response with gateway results
+                default_response["success"] = gateway_results.get("success", False)
+                default_response["transfer_details"] = gateway_results.get("transfer_details", {})
+                
+                # Calculate success rate
+                total_auths = gateway_results.get("total_authorities", 0)
+                successful_auths = gateway_results.get("successful_authorities", 0)
+                success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
+                
+                # Update authority processing details
+                default_response["authority_processing"] = {
+                    "total_authorities": total_auths,
+                    "successful_authorities": successful_auths,
+                    "failed_authorities": gateway_results.get("failed_authorities", 0),
+                    "success_rate": round(success_rate, 2),
+                    "authority_results": gateway_results.get("authority_results", {})
                 }
+                default_response["timestamp"] = gateway_results.get("timestamp", time.time())
+                
+                return default_response
             else:
                 # Fallback: create a simple transfer order and broadcast it
                 from mn_wifi.baseTypes import TransferOrder
@@ -153,21 +184,41 @@ class Bridge:
                 
                 # Broadcast through gateway
                 if self.gateway and hasattr(self.gateway, '_broadcast_transfer_request'):
-                    success = self.gateway._broadcast_transfer_request(message)
-                    return {
-                        "success": bool(success), 
-                        "sender": sender, 
-                        "recipient": recipient, 
+                    gateway_results = self.gateway._broadcast_transfer_request(message)
+                    
+                    # Calculate success rate
+                    total_auths = gateway_results.get("total_authorities", 0)
+                    successful_auths = gateway_results.get("successful_authorities", 0)
+                    success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
+                    
+                    # Update default response with fallback results
+                    default_response["success"] = gateway_results.get("success", False)
+                    default_response["transfer_details"] = {
+                        "sender": sender,
+                        "recipient": recipient,
                         "token_address": token_address,
                         "amount": amount_int,
                         "sequence_number": sequence_number,
-                        "timestamp": time.time()
+                        "order_id": str(transfer_order.order_id),
+                        "timestamp": transfer_order.timestamp
                     }
+                    default_response["authority_processing"] = {
+                        "total_authorities": total_auths,
+                        "successful_authorities": successful_auths,
+                        "failed_authorities": gateway_results.get("failed_authorities", 0),
+                        "success_rate": round(success_rate, 2),
+                        "authority_results": gateway_results.get("authority_results", {})
+                    }
+                    default_response["timestamp"] = gateway_results.get("timestamp", time.time())
+                    
+                    return default_response
                 else:
-                    return {"success": False, "error": "gateway_not_available"}
+                    default_response["error"] = "gateway_not_available"
+                    return default_response
                     
         except Exception as exc:  # pragma: no cover – defensive guard
-            return {"success": False, "error": str(exc)}
+            default_response["error"] = str(exc)
+            return default_response
 
     # ---------------------------------------------------------------------
     # Registration helpers
