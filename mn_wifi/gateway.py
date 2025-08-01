@@ -21,6 +21,7 @@ from uuid import uuid4
 from dataclasses import dataclass
 from mininet.log import info
 from queue import Queue
+import threading
 
 from mn_wifi.baseTypes import (
     Address,
@@ -127,8 +128,6 @@ class Gateway(Station):
         # Logger
         self.logger = ClientLogger(name)
         self.message_queue: Queue[Message] = Queue()
-        # Gateway state - enhanced for multi-interface support
-        self._authority_interfaces: Dict[str, AuthorityInterface] = {}  # auth_name -> interface_info
         self._running = False
         self.jsonable = JSONable()
         
@@ -161,64 +160,7 @@ class Gateway(Station):
             except Exception:  # pragma: no cover
                 pass
         
-        # Disconnect all authority interface transports
-        for auth_interface in self._authority_interfaces.values():
-            if hasattr(auth_interface.transport, "disconnect"):
-                try:
-                    auth_interface.transport.disconnect()
-                except Exception:  # pragma: no cover
-                    pass
-        
         self.logger.info(f"Gateway {self.name} stopped")
-
-    def register_authority_interface(
-        self,
-        authority_name: str,
-        authority_address: Address,
-        interface_name: str,
-        gateway_ip: str,
-        authority_ip: str,
-        transport_kind: TransportKind = TransportKind.TCP,
-    ) -> None:
-        """Register an authority with its specific interface information.
-        
-        Args:
-            authority_name: Name of the authority (e.g., "auth1").
-            authority_address: Authority's main address.
-            interface_name: Gateway interface name (e.g., "gw-eth1").
-            gateway_ip: Gateway IP on this interface (e.g., "192.168.100.11").
-            authority_ip: Authority IP on this interface (e.g., "192.168.100.1").
-            transport_kind: Transport type for this interface.
-        """
-        # Create interface-specific address for the authority
-        interface_address = Address(
-            node_id=authority_address.node_id,
-            ip_address=authority_ip,  # Use interface-specific IP
-            port=authority_address.port,
-            node_type=authority_address.node_type,
-        )
-        
-        # Create transport for this interface
-        if transport_kind == TransportKind.TCP:
-            transport = TCPTransport(self, interface_address)
-        elif transport_kind == TransportKind.UDP:
-            transport = UDPTransport(self, interface_address)
-        elif transport_kind == TransportKind.WIFI_DIRECT:
-            transport = WiFiDirectTransport(self, interface_address)
-        else:
-            raise ValueError(f"Unsupported transport kind: {transport_kind}")
-        
-        # Store interface information
-        auth_interface = AuthorityInterface(
-            authority_address=interface_address,
-            interface_name=interface_name,
-            gateway_ip=gateway_ip,
-            authority_ip=authority_ip,
-            transport=transport,
-        )
-        
-        self._authority_interfaces[authority_name] = auth_interface
-        self.logger.info(f"Registered authority {authority_name} via {interface_name} ({gateway_ip} <-> {authority_ip})")
 
     def register_authority(self, authority: WiFiAuthority) -> None:  # noqa: D401
         """Add/refresh *authority* entry used by the JSON API."""
@@ -254,49 +196,17 @@ class Gateway(Station):
         shard_name = SHARD_NAMES[idx % len(SHARD_NAMES)]
         self.authorities[authority.name]["shard"] = shard_name
 
-    def get_transfer_order(self, body: Dict[str, Any]) -> Tuple[str, str, str, int, int, str]:
-        """Get a transfer order from the body.
-        
-        Args:
-            body: The body of the request.
-        """
-        sender = body.get("sender")
-        recipient = body.get("recipient")
-        token_address = body.get("token_address")
-        amount = body.get("amount")
-        sequence_number = body.get("sequence_number")
-        signature = body.get("signature")
-
-        return sender, recipient, token_address, amount, sequence_number, signature
-        
     def forward_transfer(
         self,
-        sender: str,
-        recipient: str,
-        token_address: str,
-        amount: int,
-        sequence_number: int = 1,
-        signature: Optional[str] = None,
+        transfer_order: TransferOrder,
     ) -> Dict[str, Any]:
-        # Create transfer order
-        order = TransferOrder(
-            order_id=uuid4(),
-            sender=sender,
-            recipient=recipient,
-            token_address=token_address,
-            amount=amount,
-            sequence_number=sequence_number,
-            timestamp=time.time(),
-            signature=signature,  
-        )
-        
-        request = TransferRequestMessage(transfer_order=order)
+        request = TransferRequestMessage(transfer_order=transfer_order)
         
         message = Message(
             message_id=uuid4(),
             message_type=MessageType.TRANSFER_REQUEST,
             sender=self.address,
-            recipient=None,  # Will be set per authority
+            recipient=None,
             timestamp=time.time(),
             payload=request.to_payload(),
         )
@@ -306,13 +216,13 @@ class Gateway(Station):
         
         # Add transfer details to the results
         broadcast_results["transfer_details"] = {
-            "sender": sender,
-            "recipient": recipient,
-            "token_address": token_address,
-            "amount": amount,
-            "sequence_number": sequence_number,
-            "order_id": str(order.order_id),
-            "timestamp": order.timestamp
+            "sender": transfer_order.sender,
+            "recipient": transfer_order.recipient,
+            "token_address": transfer_order.token_address,
+            "amount": transfer_order.amount,
+            "sequence_number": transfer_order.sequence_number,
+            "order_id": str(transfer_order.order_id),
+            "timestamp": transfer_order.timestamp
         }
         
         return broadcast_results
@@ -386,43 +296,40 @@ class Gateway(Station):
 
     def forward_confirmation(
         self,
-        transfer_order: TransferOrder,
-        authority_signatures: List[str],
+        confirmation_order: ConfirmationOrder,
     ) -> Dict[str, Any]:
         # Create confirmation order
-        confirmation = ConfirmationOrder(
-            order_id=uuid4(),
-            transfer_order=transfer_order,
-            authority_signatures=authority_signatures,
-            timestamp=time.time(),
-            status=TransactionStatus.CONFIRMED,
-        )
-
-        request = ConfirmationRequestMessage(confirmation_order=confirmation)
+        request = ConfirmationRequestMessage(confirmation_order=confirmation_order)
 
         # Default return structure
         results = {
             "success": False,
-            "total_authorities": len(self._authority_interfaces),
+            "total_authorities": len(self.authorities),
             "successful_authorities": 0,
             "failed_authorities": 0,
             "authority_results": {},
             "confirmation_details": {
-                "order_id": str(confirmation.order_id),
-                "transfer_order_id": str(transfer_order.order_id),
-                "authority_signatures": authority_signatures,
-                "timestamp": confirmation.timestamp
+                "order_id": str(confirmation_order.order_id),
+                "transfer_order_id": str(confirmation_order.transfer_order.order_id),
+                "authority_signatures": confirmation_order.authority_signatures,
+                "timestamp": confirmation_order.timestamp
             },
             "timestamp": time.time()
         }
 
         # Send to every authority via their specific interface
-        for auth_name, auth_interface in self._authority_interfaces.items():
+        for auth_name, auth_data in self.authorities.items():
+            recipient_address = Address(
+                node_id=auth_data["name"],
+                ip_address=auth_data["ip"],
+                port=auth_data["address"]["port"],
+                node_type=NodeType(auth_data["address"]["node_type"]),
+            )
             msg = Message(
                 message_id=uuid4(),
                 message_type=MessageType.CONFIRMATION_REQUEST,
                 sender=self.address,
-                recipient=auth_interface.authority_address,  # Use interface-specific address
+                recipient=recipient_address,  # Use interface-specific address
                 timestamp=time.time(),
                 payload=request.to_payload(),
             )
@@ -436,18 +343,15 @@ class Gateway(Station):
             
             # Use the interface-specific transport
             try:
-                if auth_interface.transport.send_message(msg, auth_interface.authority_address):
+                if self.transport.send_message(msg, recipient_address):
                     auth_result["success"] = True
                     results["successful_authorities"] += 1
-                    self.logger.debug(f"Forwarded confirmation to {auth_name} via {auth_interface.interface_name}")
                 else:
                     auth_result["error"] = "Transport send failed"
                     results["failed_authorities"] += 1
-                    self.logger.warning(f"Failed to forward confirmation to {auth_name} via {auth_interface.interface_name}")
             except Exception as e:
                 auth_result["error"] = str(e)
                 results["failed_authorities"] += 1
-                self.logger.error(f"Exception while forwarding confirmation to {auth_name}: {e}")
             
             results["authority_results"][auth_name] = auth_result
 
@@ -460,44 +364,3 @@ class Gateway(Station):
             self.logger.info(f"Confirmation forwarded to {results['successful_authorities']} / {results['total_authorities']} authorities")
 
         return results
-
-    def get_authority_count(self) -> int:
-        """Get the number of registered authorities.
-        
-        Returns:
-            Number of registered authorities.
-        """
-        return len(self._authority_interfaces)
-
-    def get_authority_interfaces(self) -> Dict[str, AuthorityInterface]:
-        """Get information about all registered authority interfaces.
-        
-        Returns:
-            Dictionary mapping authority names to their interface information.
-        """
-        return self._authority_interfaces.copy()
-
-    def get_authorities(self) -> List['WiFiAuthority']:
-        """Get list of registered authorities for bridge updates.
-        
-        Returns:
-            List of WiFiAuthority instances that are registered with this gateway.
-        """
-        authorities = []
-        
-        # Try to get authorities from the network if available
-        for node in self.net.stations:
-            if isinstance(node, WiFiAuthority):
-                authorities.append(node)
-        
-        # If no authorities found via network, return empty list
-        # The bridge will handle this gracefully
-        return authorities
-
-    def is_running(self) -> bool:
-        """Check if the gateway is running.
-        
-        Returns:
-            True if gateway is running, False otherwise.
-        """
-        return self._running 

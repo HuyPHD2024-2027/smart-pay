@@ -14,6 +14,7 @@ import threading
 import time
 from typing import Any, Dict, Optional, List
 from urllib.parse import urlparse, parse_qs
+from uuid import UUID
 
 from mininet.log import info
 from mn_wifi.node import Node_wifi
@@ -21,12 +22,12 @@ from mn_wifi.authority import WiFiAuthority
 from mn_wifi.client import Client
 from mn_wifi.gateway import Gateway
 import dataclasses
-from uuid import UUID
 from enum import Enum
 from mn_wifi.services.core.config import settings
 from mn_wifi.bridgeLogger import BridgeLogger
 from mn_wifi.services.json import JSONable
 from mn_wifi.services.shard import SHARD_NAMES
+from mn_wifi.baseTypes import TransferOrder, ConfirmationOrder, TransactionStatus
 
 __all__ = ["Bridge"]
 
@@ -73,7 +74,7 @@ class Bridge:
                 authorities.append(node)
         return authorities
 
-    def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
+    def _confirm_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
         # Default return structure
         default_response = {
             "success": False,
@@ -98,124 +99,146 @@ class Bridge:
         }
 
         # Extract and validate required fields
-        sender = body.get("sender")
-        recipient = body.get("recipient")
-        token_address = body.get("token_address")
-        amount = body.get("amount")
-        sequence_number = body.get("sequence_number", 1)
-        signature = body.get("signature")
+        transfer_payload = body.get("transfer_order")
+        authority_signatures = body.get("authority_signatures")
         
+        transfer_order = TransferOrder(
+            order_id=transfer_payload["order_id"],
+            sender=transfer_payload["sender"],
+            recipient=transfer_payload["recipient"],
+            token_address=transfer_payload["token_address"],
+            amount=transfer_payload["amount"],
+            sequence_number=transfer_payload["sequence_number"],
+            timestamp=transfer_payload["timestamp"],
+            signature=transfer_payload["signature"]
+        )
+        
+        confirmation_order = ConfirmationOrder(
+            order_id=body.get("order_id", None),
+            transfer_order=transfer_order,
+            authority_signatures=authority_signatures,
+            timestamp=body.get("timestamp", time.time()),
+            status=TransactionStatus.PENDING
+        )
+
         # Basic sanity checks
-        if sender is None or recipient is None or token_address is None or amount is None:
+        if transfer_order is None or authority_signatures is None:
             default_response["error"] = "missing_fields"
-            default_response["required"] = ["sender", "recipient", "token_address", "amount"]
-            return default_response
-
-        try:
-            amount_int = int(amount)
-            if amount_int <= 0:
-                default_response["error"] = "amount_must_be_positive"
-                return default_response
-        except (ValueError, TypeError):
-            default_response["error"] = "amount_not_int"
-            return default_response
-
-        # Validate token address format
-        if not token_address.startswith("0x"):
-            default_response["error"] = "invalid_token_address_format"
+            default_response["required"] = ["transfer_order", "authority_signatures"]
             return default_response
 
         # Execute the transfer using the gateway
         try:
-            if self.gateway and hasattr(self.gateway, 'forward_transfer'):
-                # Use gateway's forward_transfer method to get detailed results
-                gateway_results = self.gateway.forward_transfer(
-                    sender, recipient, token_address, amount_int, sequence_number, signature
-                )
-                
-                # Update default response with gateway results
-                default_response["success"] = gateway_results.get("success", False)
-                default_response["transfer_details"] = gateway_results.get("transfer_details", {})
-                
-                # Calculate success rate
-                total_auths = gateway_results.get("total_authorities", 0)
-                successful_auths = gateway_results.get("successful_authorities", 0)
-                success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
-                
-                # Update authority processing details
-                default_response["authority_processing"] = {
-                    "total_authorities": total_auths,
-                    "successful_authorities": successful_auths,
-                    "failed_authorities": gateway_results.get("failed_authorities", 0),
-                    "success_rate": round(success_rate, 2),
-                    "authority_results": gateway_results.get("authority_results", {})
-                }
-                default_response["timestamp"] = gateway_results.get("timestamp", time.time())
-                
-                return default_response
-            else:
-                # Fallback: create a simple transfer order and broadcast it
-                from mn_wifi.baseTypes import TransferOrder
-                from mn_wifi.messages import TransferRequestMessage, Message, MessageType
-                from uuid import uuid4
-                
-                # Create transfer order
-                transfer_order = TransferOrder(
-                    order_id=uuid4(),
-                    sender=sender,
-                    token_address=token_address,
-                    recipient=recipient,
-                    amount=amount_int,
-                    sequence_number=sequence_number,
-                    timestamp=time.time(),
-                    signature=signature or "dummy_signature"
-                )
-                
-                # Create transfer request message
-                request = TransferRequestMessage(transfer_order=transfer_order)
-                message = Message(
-                    message_id=uuid4(),
-                    message_type=MessageType.TRANSFER_REQUEST,
-                    sender=None,  # Will be set by gateway
-                    recipient=None,  # Will be set by gateway
-                    timestamp=time.time(),
-                    payload=request.to_payload(),
-                )
-                
-                # Broadcast through gateway
-                if self.gateway and hasattr(self.gateway, '_broadcast_transfer_request'):
-                    gateway_results = self.gateway._broadcast_transfer_request(message)
-                    
-                    # Calculate success rate
-                    total_auths = gateway_results.get("total_authorities", 0)
-                    successful_auths = gateway_results.get("successful_authorities", 0)
-                    success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
-                    
-                    # Update default response with fallback results
-                    default_response["success"] = gateway_results.get("success", False)
-                    default_response["transfer_details"] = {
-                        "sender": sender,
-                        "recipient": recipient,
-                        "token_address": token_address,
-                        "amount": amount_int,
-                        "sequence_number": sequence_number,
-                        "order_id": str(transfer_order.order_id),
-                        "timestamp": transfer_order.timestamp
-                    }
-                    default_response["authority_processing"] = {
-                        "total_authorities": total_auths,
-                        "successful_authorities": successful_auths,
-                        "failed_authorities": gateway_results.get("failed_authorities", 0),
-                        "success_rate": round(success_rate, 2),
-                        "authority_results": gateway_results.get("authority_results", {})
-                    }
-                    default_response["timestamp"] = gateway_results.get("timestamp", time.time())
-                    
+            authorities = self.get_authorities_from_network()
+            for auth in authorities:
+                if not auth._validate_confirmation_order(confirmation_order):
+                    default_response["error"] = "invalid_confirmation_order"
                     return default_response
-                else:
-                    default_response["error"] = "gateway_not_available"
+
+            # Use gateway's forward_confirmation method to get detailed results
+            gateway_results = self.gateway.forward_confirmation(
+                confirmation_order
+            )
+            
+            # Update default response with gateway results
+            default_response["success"] = gateway_results.get("success", False)
+            default_response["transfer_details"] = gateway_results.get("transfer_details", {})
+            
+            # Calculate success rate
+            total_auths = gateway_results.get("total_authorities", 0)
+            successful_auths = gateway_results.get("successful_authorities", 0)
+            success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
+            
+            # Update authority processing details
+            default_response["authority_processing"] = {
+                "total_authorities": total_auths,
+                "successful_authorities": successful_auths,
+                "failed_authorities": gateway_results.get("failed_authorities", 0),
+                "success_rate": round(success_rate, 2),
+                "authority_results": gateway_results.get("authority_results", {})
+            }
+            default_response["timestamp"] = gateway_results.get("timestamp", time.time())
+            
+            return default_response
+        except Exception as exc:  # pragma: no cover – defensive guard
+            default_response["error"] = str(exc)
+            return default_response
+
+    def _transfer_via_gateway(self, body: Dict[str, Any]) -> Dict[str, Any]:
+       # Default return structure
+        default_response = {
+            "success": False,
+            "error": None,
+            "transfer_details": {
+                "sender": None,
+                "recipient": None,
+                "token_address": None,
+                "amount": None,
+                "sequence_number": None,
+                "order_id": None,
+                "timestamp": None
+            },
+            "authority_processing": {
+                "total_authorities": 0,
+                "successful_authorities": 0,
+                "failed_authorities": 0,
+                "success_rate": 0.0,
+                "authority_results": {}
+            },
+            "timestamp": time.time()
+        }
+
+        payload = body.get("transfer_order")
+        transfer_order = TransferOrder(
+            order_id=payload["order_id"],
+            sender=payload["sender"],
+            recipient=payload["recipient"],
+            token_address=payload["token_address"],
+            amount=payload["amount"],
+            sequence_number=payload["sequence_number"],
+            timestamp=payload["timestamp"],
+            signature=payload["signature"]
+        )
+        # Basic sanity checks
+        if transfer_order.sender is None or transfer_order.recipient is None or transfer_order.token_address is None or transfer_order.amount is None:
+            default_response["error"] = "missing_fields"
+            default_response["required"] = ["transfer_order"]
+            return default_response
+
+        
+        # Execute the transfer using the gateway
+        try:
+            authorities = self.get_authorities_from_network()
+            for auth in authorities:
+                if not auth._validate_transfer_order(transfer_order):
+                    default_response["error"] = "invalid_transfer_order"
                     return default_response
-                    
+
+            # Use gateway's forward_transfer method to get detailed results
+            gateway_results = self.gateway.forward_transfer(
+                transfer_order
+            )
+            
+            # Update default response with gateway results
+            default_response["success"] = gateway_results.get("success", False)
+            default_response["transfer_details"] = gateway_results.get("transfer_details", {})
+            
+            # Calculate success rate
+            total_auths = gateway_results.get("total_authorities", 0)
+            successful_auths = gateway_results.get("successful_authorities", 0)
+            success_rate = (successful_auths / total_auths * 100) if total_auths > 0 else 0.0
+            
+            # Update authority processing details
+            default_response["authority_processing"] = {
+                "total_authorities": total_auths,
+                "successful_authorities": successful_auths,
+                "failed_authorities": gateway_results.get("failed_authorities", 0),
+                "success_rate": round(success_rate, 2),
+                "authority_results": gateway_results.get("authority_results", {})
+            }
+            default_response["timestamp"] = gateway_results.get("timestamp", time.time())
+            
+            return default_response
         except Exception as exc:  # pragma: no cover – defensive guard
             default_response["error"] = str(exc)
             return default_response
@@ -495,11 +518,21 @@ class Bridge:
                     except Exception as exc:  # bad JSON
                         self._json({"success": False, "error": f"invalid_json: {exc}"}, 400)
                         return
-
                     result = self.bridge._transfer_via_gateway(body)
                     code = 200 if result.get("success") else 400
                     self._json(result, code)
 
+                elif self.path == "/confirm":
+                    try:
+                        length = int(self.headers.get("Content-Length", "0"))
+                        raw = self.rfile.read(length) if length else b"{}"
+                        body = json.loads(raw.decode() or "{}")
+                    except Exception as exc:  # bad JSON
+                        self._json({"success": False, "error": f"invalid_json: {exc}"}, 400)
+                        return
+                    result = self.bridge._confirm_via_gateway(body)
+                    code = 200 if result.get("success") else 400
+                    self._json(result, code)
 
         def _factory(*args, **kwargs):  # type: ignore[ann-type]
             return _Handler(*args, bridge=self, **kwargs)

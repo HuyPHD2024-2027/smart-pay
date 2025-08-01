@@ -345,33 +345,6 @@ class WiFiAuthority(Station):
                     authority_signature=self.state.authority_signature
                 )
             
-            # Check if sender account exists and has sufficient balance
-            sender_account = self.state.accounts.get(transfer_order.sender)
-            if not sender_account:
-                if not sender_account:
-                    return TransferResponseMessage(
-                        transfer_order=transfer_order,
-                        success=False,
-                        error_message="Sender account not found",
-                        authority_signature=self.state.authority_signature
-                    )
-            
-            token_balance = sender_account.balances.get(transfer_order.token_address)   
-            meshpay_balance = int(token_balance.meshpay_balance)
-
-            for token_symbol, token_config in SUPPORTED_TOKENS.items():
-                if token_config['address'] == transfer_order.token_address:
-                    parsed_amount = int(Decimal(str(transfer_order.amount)) / (10 ** token_config['decimals']))
-                    break
-            
-            if meshpay_balance < parsed_amount:
-                return TransferResponseMessage(
-                    transfer_order=transfer_order,
-                    success=False,
-                    error_message=f"Insufficient balance for token {transfer_order.token_address}",
-                    authority_signature=self.state.authority_signature
-                )
-            
             # Add to pending transfers
             self.state.accounts[transfer_order.sender].pending_confirmation = SignedTransferOrder(
                 order_id=transfer_order.order_id,
@@ -435,14 +408,10 @@ class WiFiAuthority(Station):
             # Store confirmation order
             account = self.state.accounts[confirmation_order.transfer_order.sender]
 
-            account.confirmed_transfers[confirmation_order.order_id] = confirmation_order
+            account.confirmed_transfers[str(confirmation_order.order_id)] = confirmation_order
 
-            # Remove from pending if matches
-            if (
-                account.pending_confirmation
-                and account.pending_confirmation.order_id == confirmation_order.order_id
-            ):
-                account.pending_confirmation = None
+            # Remove from pending
+            account.pending_confirmation = None
             
             # Update confirmation status
             confirmation_order.status = TransactionStatus.CONFIRMED
@@ -477,18 +446,14 @@ class WiFiAuthority(Station):
             )
 
             # Deduct / credit
-            sender.balances[transfer.token_address] -= transfer.amount
+            sender.balances[transfer.token_address].meshpay_balance -= transfer.amount
             sender.sequence_number += 1
             sender.last_update = time.time()
 
-            recipient.balances[transfer.token_address] += transfer.amount
+            recipient.balances[transfer.token_address].meshpay_balance += transfer.amount
             recipient.last_update = time.time()
             # ------------------------------------------------------------------
 
-            self.logger.info(
-                f"Confirmation {transfer.order_id} applied – sender={transfer.sender}, "
-                f"recipient={transfer.recipient}, amount={transfer.amount}"
-            )
             self.logger.info(f"Confirmation order {confirmation_order.order_id} processed")
             return True
             
@@ -639,6 +604,12 @@ class WiFiAuthority(Station):
         if sender_account and int(transfer_order.sequence_number) < int(sender_account.sequence_number):
             return False
         
+        token_balance = sender_account.balances.get(transfer_order.token_address)   
+        meshpay_balance = int(token_balance.meshpay_balance)
+        
+        if meshpay_balance < transfer_order.amount:
+            return False
+        
         return True
     
     def _validate_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
@@ -664,9 +635,12 @@ class WiFiAuthority(Station):
         ):
             return False
 
-        # Check the signature of the confirmation order
-        if not confirmation_order.authority_signatures:
+        if account.pending_confirmation and str(account.pending_confirmation.order_id) != str(confirmation_order.transfer_order.order_id):
             return False
+
+        #TODO: Check the signature of the confirmation order
+        # if not confirmation_order.authority_signatures:
+        #     return False
 
         return True
     

@@ -120,20 +120,29 @@ class ConfirmationOrder:
         if self.timestamp == 0:
             self.timestamp = time.time()
 
+@dataclass
+class TokenBalance:
+    """Token balance information."""
+    token_symbol: str
+    token_address: str
+    wallet_balance: float
+    meshpay_balance: float
+    total_balance: float
+    decimals: int
 
 @dataclass
 class AccountOffchainState:
     """Account state in the FastPay system."""
     
     address: str
-    balances: Dict[str, int]  # Map of token_address -> balance
+    balances: Dict[str, TokenBalance]  # Map of token_address -> balance
     # Sequence number tracking spending actions.
     sequence_number: int
     last_update: float
     # Whether we have signed a transfer for this sequence number already.
     pending_confirmation: SignedTransferOrder
     # All confirmed certificates as a sender.
-    confirmed_transfers: Dict[UUID, ConfirmationOrder] 
+    confirmed_transfers: Dict[str, ConfirmationOrder] 
     
     def __post_init__(self) -> None:
         """Initialize default values."""

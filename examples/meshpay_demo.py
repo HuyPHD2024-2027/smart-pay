@@ -229,32 +229,6 @@ def configure_internet_access(
     # Start bridge service on gateway host
     bridge.start_bridge_server(gateway)
 
-
-def setup_gateway_multi_interface(gateway: Gateway, authorities: List[WiFiAuthority]) -> None:
-    """Set up the gateway with multi-interface support for each authority.
-    
-    Args:
-        gateway: Gateway instance to configure
-        authorities: List of authority nodes to register
-    """
-    info("*** Setting up gateway multi-interface forwarding\n")
-    
-    for i, auth in enumerate(authorities, start=1):
-        auth_name = auth.name
-        interface_name = f"gw-eth{i}"
-        gateway_ip = f"192.168.100.{10 + i}"
-        authority_ip = f"192.168.100.{i}"
-        
-        # Register authority with its interface information
-        gateway.register_authority_interface(
-            authority_name=auth_name,
-            authority_address=auth.address,
-            interface_name=interface_name,
-            gateway_ip=gateway_ip,
-            authority_ip=authority_ip,
-            transport_kind=TransportKind.TCP
-        )
-
 def main() -> None:
     """Main entry point for the enhanced mesh demo."""
     args = parse_mesh_internet_args()
@@ -310,9 +284,6 @@ def main() -> None:
         
         gateway.start_gateway_services()
         
-        # # Set up gateway multi-interface forwarding
-        # setup_gateway_multi_interface(gateway, authorities)
-
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")
         time.sleep(5)
