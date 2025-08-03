@@ -1,12 +1,10 @@
-# Resilient Offline Payment Mesh – Research Prototype
+# Etherlink MeshPay - Decentralized Offline Payment Network
 
-This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resilient Offline Payment Networks: Self-Healing Mesh Architecture for Infrastructure-Free Commerce.”*  It contains a fully-working prototype that couples IEEE 802.11s mesh networking with a FastPay-style, pre-funded side-chain to enable sub-second retail payments during Internet outages.
+A revolutionary DeFi protocol that enables seamless offline payments through a self-healing mesh network architecture. Built for the Etherlink hackathon, this project combines IEEE 802.11s mesh networking with a pre-funded side-chain to enable sub-second retail payments during Internet outages.
 
 ---
 
-
-
-## 1  Prerequisites
+## 📋 Prerequisites
 
 * Ubuntu 20.04 (LTS) or later with kernel ≥ 5.x
 * Python 3.8+
@@ -18,56 +16,32 @@ This repository accompanies the CCS ’25 Doctoral-Symposium proposal *“Resili
   cd mininet-wifi
   sudo util/install.sh -Wln
   ```
+
 ---
 
-## 3  Quick Demo (5 min)
+## ⚡ Quick Demo
 
 ```bash
 # Start a 3-authority mesh with CLI
 sudo python3 -m mn_wifi.examples.meshpay_demo --authorities 3 --clients 0 --internet
 ```
-Inside the CLI you can issue FastPay commands such as:
+
+Inside the CLI you can issue DeFi commands such as:
 ```bash
 transfer user1 user2 100
 broadcast_confirmation user1
 balance user1
 balance user2
 infor auth1
+update_onchain_balance auth1
 ```
 
 ---
 
-## 4  Reproduce Evaluation Figures
+## 📞 Contact
 
-Run all experiments (baseline, scaling, mobility, Wi-Fi Direct baseline) and generate a summary:
-```bash
-cd mininet-wifi/examples
-sudo ./run_evaluation.sh
-```
-Results appear under `evaluation_results_*/` and are summarised in the terminal.
-
-Expected baseline (50 Authorities, 200 Users):
-| Metric | Median | 95th pct. | Success |
-|--------|--------|-----------|---------|
-| Latency | ≈ 1200 ms | ≈ 1500 ms | ≈ 97 % |
+*Huy D. Q.*, Etherlink Hackathon Participant — [huydo21052000@gmail.com]
 
 ---
 
-## 5  Next Steps
-
-1. Port protocol to Android devices for real-world pilots.
-2. Integrate Coconut-style privacy credentials and confidential balances.
-3. Support committee rotation & on-chain weight updates.
-4. Measure energy consumption on battery-powered hardware.
-
-We welcome feedback—especially on evaluation methodology, privacy extensions, and incentive design.
-
----
-
-## 6  Contact
-
-*Huy D. Q.*, PhD Candidate — [huydo21052000@gmail.com]
-
----
-
-> © 2025 Huy D. Q.  Licensed under Apache 2.0.  Powered by Mininet-WiFi. 
+> © 2025 Huy D. Q. Built for Etherlink Hackathon. Licensed under Apache 2.0. Powered by Mininet-WiFi.
