@@ -131,6 +131,7 @@ class Bridge:
         try:
             authorities = self.get_authorities_from_network()
             for auth in authorities:
+                self.logger.info(f"Validating confirmation order for {auth.name}")
                 if not auth._validate_confirmation_order(confirmation_order):
                     default_response["error"] = "invalid_confirmation_order"
                     return default_response

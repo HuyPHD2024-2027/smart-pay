@@ -290,7 +290,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         metrics = auth_node.get_performance_stats()  # type: ignore[attr-defined]
         print(json.dumps(metrics, indent=2, default=str))
 
-    # 5. ------------------------------------------------------------------
+    # 6. ------------------------------------------------------------------
     def do_broadcast_confirmation(self, line: str) -> None:
         """Broadcast a transfer order using :pymeth:`mn_wifi.client.Client.transfer`.
         
@@ -309,7 +309,31 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         except Exception as exc:  # pragma: no cover – defensive, should not occur
             print(f"❌ Broadcast confirmation failed: {exc}")
 
-    # 6. ------------------------------------------------------------------
+    # 7. ------------------------------------------------------------------
+    def do_update_onchain_balance(self, line: str) -> None:
+        """Update account balance.
+        
+        Usage: update_onchain_balance <user>"
+        """
+        args = line.split()
+        if len(args) != 1:
+            print("Usage: update_onchain_balance <user>")
+            return
+            
+        user = args[0]
+        client = self._find_node(user)
+        if client is None:
+            print(f"❌ Unknown client '{user}'")
+            return
+        
+        # Handle async method properly
+        try:
+            import asyncio
+            asyncio.run(client.update_account_balance())
+            print(f"✅ Account balance updated for {user}")
+        except Exception as e:
+            print(f"❌ Failed to update account balance: {e}")
+
     def do_help_fastpay(self, line: str) -> None:
         """Show help for FastPay-specific commands."""
         print("\nFastPay Commands:")
@@ -319,6 +343,7 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         print("  voting_power                       - Show voting power of authorities")
         print("  performance <authority>            - Show authority performance metrics")
         print("  broadcast_confirmation <sender>    - Broadcast confirmation order")
+        print("  <user> update_onchain_balance      - Update account balance")
         print("\nBase Mininet-WiFi Commands:")
         print("  stop                               - Stop mobility simulation")
         print("  start                              - Start mobility simulation")

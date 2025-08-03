@@ -14,6 +14,7 @@ from eth_account import Account
 from mn_wifi.services.abis import MeshPayABI, ERC20ABI
 from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
 from mn_wifi.authorityLogger import AuthorityLogger
+from mn_wifi.baseTypes import TransferOrder
 
 @dataclass
 class AccountInfo:
@@ -392,6 +393,52 @@ class BlockchainClient:
         """Convert human-readable amount to wei."""
         return float(Decimal(human_amount) * Decimal(10 ** decimals))
     
+    async def update_account_balance(self, confirmation_order: tuple) -> None:
+        """Update account balance from confirmation order.
+        
+        Args:
+            confirmation_order: Tuple containing (transfer_order, authority_signatures)
+        """
+        if not self.meshpay_contract:
+            self.logger.error("MeshPay contract not initialized")
+            return
+        
+        if not self.account:
+            self.logger.error("Authority account not initialized - cannot sign transactions")
+            return
+        
+        try:
+            # Extract transfer order from confirmation order tuple
+            transfer_order, authority_signatures = confirmation_order
+            
+            # Build the transaction
+            transaction = self.meshpay_contract.functions.updateBalanceFromConfirmation(
+                confirmation_order
+            ).build_transaction({
+                'from': self.account.address,
+                'gas': 3000000,  
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+            })
+            
+            # Sign the transaction
+            signed_txn = self.w3.eth.account.sign_transaction(transaction, self.account.key)
+            
+            # Send the transaction
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            
+            # Wait for transaction receipt
+            tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if tx_receipt.status == 1:
+                self.logger.info(f"Account balance updated successfully. TX: {tx_hash.hex()}")
+            else:
+                self.logger.error(f"Transaction failed. TX: {tx_hash.hex()}")
+            
+        except Exception as e:
+            self.logger.error(f"Error updating account balance: {e}")
+            raise
+
     async def health_check(self) -> Dict[str, Any]:
         """Check blockchain connection health."""
         health_status = {
