@@ -1,4 +1,4 @@
-"""Message types and protocols for FastPay WiFi communication."""
+"""Message types and protocols for MeshPay WiFi communication."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from mn_wifi.baseTypes import Address, ConfirmationOrder, TransferOrder
+from meshpay.types import Address, ConfirmationOrder, TransferOrder
 
 
 class MessageType(Enum):
-    """Types of messages in the FastPay WiFi protocol."""
+    """Types of messages in the MeshPay WiFi protocol."""
     
     TRANSFER_REQUEST = "transfer_request"
     TRANSFER_RESPONSE = "transfer_response"
@@ -54,7 +54,7 @@ class Message:
         return json.dumps(data)
     
     @classmethod
-    def from_json(cls, json_str: str) -> Message:
+    def from_json(cls, json_str: str) -> "Message":
         """Deserialize message from JSON."""
         data = json.loads(json_str)
         data['message_id'] = UUID(data['message_id'])
@@ -84,7 +84,7 @@ class TransferRequestMessage:
         }
     
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> TransferRequestMessage:
+    def from_payload(cls, payload: Dict[str, Any]) -> "TransferRequestMessage":
         """Create from message payload."""
         transfer_data = payload['transfer_order']
 
@@ -115,7 +115,7 @@ class TransferResponseMessage:
         }
     
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> TransferResponseMessage:
+    def from_payload(cls, payload: Dict[str, Any]) -> "TransferResponseMessage":
         """Create from message payload."""
         return cls(
             transfer_order=TransferOrder(**payload['transfer_order']),
@@ -138,7 +138,7 @@ class ConfirmationRequestMessage:
         }
     
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> ConfirmationRequestMessage:
+    def from_payload(cls, payload: Dict[str, Any]) -> "ConfirmationRequestMessage":
         """Create from message payload."""
         conf_data = payload['confirmation_order']
 
@@ -164,7 +164,7 @@ class SyncRequestMessage:
         }
     
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> SyncRequestMessage:
+    def from_payload(cls, payload: Dict[str, Any]) -> "SyncRequestMessage":
         """Create from message payload."""
         return cls(
             last_sync_time=payload['last_sync_time'],
@@ -189,7 +189,7 @@ class PeerDiscoveryMessage:
         }
     
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> PeerDiscoveryMessage:
+    def from_payload(cls, payload: Dict[str, Any]) -> "PeerDiscoveryMessage":
         """Create from message payload."""
         node_data = payload['node_info']
         node_info = Address(**node_data)
@@ -197,4 +197,7 @@ class PeerDiscoveryMessage:
             node_info=node_info,
             service_capabilities=payload['service_capabilities'],
             network_metrics=payload.get('network_metrics')
-        ) 
+        )
+
+
+

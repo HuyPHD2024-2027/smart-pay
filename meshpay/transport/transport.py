@@ -1,11 +1,7 @@
 from typing import Dict, Optional, Protocol, Union, List
 from enum import Enum
-from mn_wifi.baseTypes import (
-    Address
-)
-from mn_wifi.messages import (
-    Message
-)
+from meshpay.types import Address
+from meshpay.messages import Message
 
 class NetworkTransport(Protocol):
     """Protocol that any concrete transport must implement."""

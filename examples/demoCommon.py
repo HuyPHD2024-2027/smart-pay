@@ -12,8 +12,8 @@ from typing import List
 
 from mininet.log import info
 
-from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
+from meshpay.nodes.authority import WiFiAuthority
+from meshpay.nodes.client import Client
 
 __all__ = [
     "parse_common_args",

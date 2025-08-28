@@ -18,16 +18,16 @@ from uuid import UUID
 
 from mininet.log import info
 from mn_wifi.node import Node_wifi
-from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
-from mn_wifi.gateway import Gateway
+from meshpay.nodes.authority import WiFiAuthority
+from meshpay.nodes.client import Client
+from meshpay.api.gateway import Gateway
 import dataclasses
 from enum import Enum
 from mn_wifi.services.core.config import settings
-from mn_wifi.bridgeLogger import BridgeLogger
+from meshpay.logger.bridgeLogger import BridgeLogger
 from mn_wifi.services.json import JSONable
 from mn_wifi.services.shard import SHARD_NAMES
-from mn_wifi.baseTypes import TransferOrder, ConfirmationOrder, TransactionStatus
+from meshpay.types import TransferOrder, ConfirmationOrder, TransactionStatus
 
 __all__ = ["Bridge"]
 

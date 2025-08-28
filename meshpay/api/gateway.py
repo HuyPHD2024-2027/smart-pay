@@ -23,7 +23,7 @@ from mininet.log import info
 from queue import Queue
 import threading
 
-from mn_wifi.baseTypes import (
+from meshpay.types import (
     Address,
     NodeType,
     TransferOrder,
@@ -31,19 +31,19 @@ from mn_wifi.baseTypes import (
     TransactionStatus,
     GatewayState,
 )
-from mn_wifi.authority import WiFiAuthority
-from mn_wifi.messages import (
+from meshpay.nodes.authority import WiFiAuthority
+from meshpay.messages import (
     Message,
     MessageType,
     TransferRequestMessage,
     ConfirmationRequestMessage,
 )
 from mn_wifi.node import Station
-from mn_wifi.transport import NetworkTransport, TransportKind
-from mn_wifi.tcp import TCPTransport
-from mn_wifi.udp import UDPTransport
-from mn_wifi.wifiDirect import WiFiDirectTransport
-from mn_wifi.clientLogger import ClientLogger
+from meshpay.transport.transport import NetworkTransport, TransportKind
+from meshpay.transport.tcp import TCPTransport
+from meshpay.transport.udp import UDPTransport
+from meshpay.transport.wifiDirect import WiFiDirectTransport
+from meshpay.logger.clientLogger import ClientLogger
 from mn_wifi.services.json import JSONable
 from mn_wifi.services.shard import SHARD_NAMES
 
