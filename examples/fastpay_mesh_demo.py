@@ -140,7 +140,37 @@ def create_mesh_network(
     if enable_plot:
         info("*** Plotting mesh network\n")
         net.plotGraph(max_x=200, max_y=150)
+    
+    # ------------------------------------------------------------------
+    # Monkey-patch helper methods so CLI keeps working
+    # ------------------------------------------------------------------
+    import types
 
+    def _get_mesh_peers(self):
+        """Return list of mesh neighbour MAC addresses (uses `iw mpath`)."""
+        if self.wintfs:
+            intf = list(self.wintfs.values())[0]
+            output = self.cmd(f'iw dev {intf.name} mpath dump')
+            peers = []
+            for line in output.split('\n'):
+                if 'DEST' in line and 'NEXT_HOP' in line:
+                    parts = line.split()
+                    if len(parts) > 1:
+                        peers.append(parts[1])
+            return peers
+        return []
+
+    def _transfer_via_mesh(self, recipient: str, amount: int):  # type: ignore[override]
+        """Fallback helper that just re-uses normal transfer."""
+        return self.transfer(recipient, amount)
+
+    # Attach helpers to every node ------------------------------------------------
+    for node in [*authorities, *clients]:
+        node.get_mesh_peers = types.MethodType(_get_mesh_peers, node)  # type: ignore[attr-defined]
+
+    for client in clients:
+        client.transfer_via_mesh = types.MethodType(_transfer_via_mesh, client)  # type: ignore[attr-defined]
+    
     return net, authorities, clients
 
 
@@ -164,7 +194,7 @@ def setup_mesh_accounts(
         for user, balance in demo_balances.items():
             auth.state.accounts[user] = AccountOffchainState(
                 address=user,
-                balances={user: balance},
+                balance=balance,
                 sequence_number=0,
                 last_update=time.time(),
                 pending_confirmation=SignedTransferOrder(

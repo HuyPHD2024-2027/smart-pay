@@ -750,6 +750,35 @@ function wpan_tools {
     popd
 }
 
+function blockchain_deps {
+    echo "Installing blockchain dependencies..."
+    
+    # Create necessary directories
+    sudo mkdir -p $MININET_DIR/mininet-wifi/services
+    sudo mkdir -p $MININET_DIR/mininet-wifi/services/abis
+    
+    # Install Python dependencies
+    sudo pip3 install web3>=6.15.1 \
+                      eth-account==0.9.0 \
+                      eth-utils>=2.3.1 \
+                      eth-abi>=4.2.1 \
+                      eth-typing>=3.5.2 \
+                      cryptography>=41.0.8 \
+                      hexbytes>=0.3.1 \
+                      python-dotenv>=1.0.0 \
+                      pydantic>=2.5.0
+    
+    # Copy blockchain files
+    if [ -f "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" ]; then
+        sudo cp "$MININET_DIR/mininet-web/backend/app/services/blockchain_client.py" \
+                "$MININET_DIR/mininet-wifi/services/"
+        sudo cp -r "$MININET_DIR/mininet-web/backend/app/abis/"* \
+                   "$MININET_DIR/mininet-wifi/services/abis/"
+        echo "Blockchain files copied successfully"
+    else
+        echo "Warning: blockchain_client.py not found"
+    fi
+}
 
 function all {
     if [ "$DIST" = "Fedora" ]; then
@@ -826,6 +855,7 @@ function usage {
     printf 'specific installation function in this script.\n\n' >&2
 
     printf 'options:\n' >&2
+    printf -- ' -1: install blockchain/smart contract dependencies\n' >&2
     printf -- ' -a: (default) install (A)ll packages - good luck!\n' >&2
     printf -- ' -B: install B.A.T.M.A.N\n' >&2
     printf -- ' -d: (D)elete some sensitive files from a VM image\n' >&2
@@ -866,6 +896,7 @@ else
     while getopts 'aBdeEfhiklmMnNoOPrSstvWxz036' OPTION
     do
       case $OPTION in
+      1)    blockchain_deps;;
       a)    all;;
       B)    batman;;
       d)    vm_clean;;

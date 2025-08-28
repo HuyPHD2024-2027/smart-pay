@@ -19,7 +19,6 @@ class NodeType(Enum):
     
     AUTHORITY = "authority"
     CLIENT = "client"
-    GATEWAY = "gateway"
 
 
 class TransactionStatus(Enum):
@@ -52,7 +51,6 @@ class TransferOrder:
     order_id: UUID
     sender: str
     recipient: str
-    token_address: str
     amount: int
     sequence_number: int
     timestamp: float
@@ -121,77 +119,6 @@ class ConfirmationOrder:
             self.timestamp = time.time()
 
 @dataclass
-class TokenBalance:
-    """Token balance information."""
-    token_symbol: str
-    token_address: str
-    wallet_balance: float
-    meshpay_balance: float
-    total_balance: float
-    decimals: int
-
-@dataclass
-class AccountOffchainState:
-    """Account state in the FastPay system."""
-    
-    address: str
-    balances: Dict[str, TokenBalance]  # Map of token_address -> balance
-    # Sequence number tracking spending actions.
-    sequence_number: int
-    last_update: float
-    # Whether we have signed a transfer for this sequence number already.
-    pending_confirmation: SignedTransferOrder
-    # All confirmed certificates as a sender.
-    confirmed_transfers: Dict[str, ConfirmationOrder] 
-    
-    def __post_init__(self) -> None:
-        """Initialize default values."""
-        if self.last_update == 0:
-            self.last_update = time.time()
-
-        # Ensure *confirmed_transfers* is always a dict
-        if self.confirmed_transfers is None:
-            self.confirmed_transfers = {}
-
-        # Ensure *balances* is always a dict
-        if self.balances is None:
-            self.balances = {}
-
-@dataclass
-class AuthorityState:
-    """State maintained by an authority node."""
-    
-    name: str
-    address: Address
-    shard_assignments: Set[str]
-    accounts: Dict[str, AccountOffchainState]
-    committee_members: Set[str]
-    authority_signature: Optional[str] = None
-    last_sync_time: float = 0.0
-    stake: int = 0
-    balance: int = 0
-    
-    def __post_init__(self) -> None:
-        """Initialize default values."""
-        if self.last_sync_time == 0:
-            self.last_sync_time = time.time()
-
-@dataclass
-class NetworkMetrics:
-    """Network performance metrics."""
-    
-    latency: float
-    bandwidth: float
-    packet_loss: float
-    connectivity_ratio: float
-    last_update: float
-    
-    def __post_init__(self) -> None:
-        """Initialize default values."""
-        if self.last_update == 0:
-            self.last_update = time.time()
-
-@dataclass
 class ClientState:
     """Lightweight in-memory state for a FastPay client.
 
@@ -222,10 +149,64 @@ class ClientState:
         seq = self.sequence_number
         self.sequence_number += 1
         return seq
+    
 
 @dataclass
-class GatewayState:
-    """State maintained by a gateway node."""
+class AccountOffchainState:
+    """Account state in the FastPay system."""
+    
+    address: str
+    balance: int
+    # Sequence number tracking spending actions.
+    sequence_number: int
+    last_update: float
+    # Whether we have signed a transfer for this sequence number already.
+    pending_confirmation: SignedTransferOrder
+    # All confirmed certificates as a sender.
+    confirmed_transfers: Dict[UUID, ConfirmationOrder] 
+    
+    def __post_init__(self) -> None:
+        """Initialize default values."""
+        if self.last_update == 0:
+            self.last_update = time.time()
+
+        # Ensure *confirmed_transfers* is always a dict for ease of use.
+        if self.confirmed_transfers is None:
+            self.confirmed_transfers = {}
+
+
+@dataclass
+class AuthorityState:
+    """State maintained by an authority node."""
     
     name: str
     address: Address
+    shard_assignments: Set[str]
+    accounts: Dict[str, AccountOffchainState]
+    committee_members: Set[str]
+    authority_signature: Optional[str] = None
+    last_sync_time: float = 0.0
+    stake: int = 0
+    balance: int = 0
+    
+    def __post_init__(self) -> None:
+        """Initialize default values."""
+        if self.last_sync_time == 0:
+            self.last_sync_time = time.time()
+
+
+@dataclass
+class NetworkMetrics:
+    """Network performance metrics."""
+    
+    latency: float
+    bandwidth: float
+    packet_loss: float
+    connectivity_ratio: float
+    last_update: float
+    
+    def __post_init__(self) -> None:
+        """Initialize default values."""
+        if self.last_update == 0:
+            self.last_update = time.time()
+

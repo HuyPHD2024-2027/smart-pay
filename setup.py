@@ -24,8 +24,7 @@ setup(
               'mn_wifi.examples.eap-tls', 'mn_wifi.examples.eap-tls.CA', 'mn_wifi.examples.p4',
               'mn_wifi.sumo', 'mn_wifi.sumo.sumolib', 'mn_wifi.sumo.traci',
               'mn_wifi.sumo.data', 'mn_wifi.sumo.sumolib.net', 'mn_wifi.sumo.sumolib.output',
-              'mn_wifi.sumo.sumolib.shapes', 'util', 
-              'mn_wifi.services', 'mn_wifi.services.core', 'mn_wifi.services.abis'],
+              'mn_wifi.sumo.sumolib.shapes', 'util'],
     package_data={'util' : ['m'], 'mn_wifi.sumo.data': ['*.xml', '*.sumocfg'],
                   'mn_wifi.data': ['signal_table_ieee80211ax',
                                    'signal_table_ieee80211n_gi20',
@@ -34,8 +33,7 @@ setup(
                                    'signal_table_ieee80211n_sgi40'],
                   'mn_wifi.examples.eap-tls': ['eap_users'],
                   'mn_wifi.examples.eap-tls.CA': ['*.sh'],
-                  'mn_wifi.examples.p4': ['*.json'],
-                  'mn_wifi.services.abis': ['*.json']},
+                  'mn_wifi.examples.p4': ['*.json']},
     long_description="""
         Mininet-WiFi is a network emulator which uses lightweight
         virtualization to create virtual networks for rapid
@@ -52,13 +50,7 @@ setup(
     keywords='networking emulator protocol Internet OpenFlow SDN',
     license='BSD',
     install_requires=[
-        'setuptools',
-        'matplotlib',
-        'web3>=6.15.1',
-        'eth-account==0.9.0',
-        'eth-utils>=2.3.1',
-        'python-dotenv>=1.0.0',
-        'pydantic>=2.5.0',
+        'setuptools', 'matplotlib'
     ],
     scripts=scripts,
 )
