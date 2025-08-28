@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-"""FastPay client implementation capable of using multiple network transports (TCP, UDP, or Wi-Fi Direct).
+"""MeshPay client implementation capable of using multiple network transports.
 
-This module provides a fully-typed, extensible client that mirrors part of the behaviour of the
-original Rust `client.rs` while adapting it to a Pythonic environment running inside
-`mininet-wifi`.  The client is transport-agnostic: it delegates all network operations to a
-`NetworkTransport` implementation so that the same logic can be re-used with raw TCP sockets,
-UDP datagrams, or the specialised `WiFiInterface` already available in the code-base for
-Wi-Fi Direct communication.
-
-Only a subset of the full FastPay protocol is currently supported (transfer initiation and
-response handling).  The structure, however, is designed for easy future extension to cover the
-entire API surface of the Rust client, including confirmation orders, certificate management, and
-persistent balance tracking.
+This class mirrors the previous implementation under ``mn_wifi.client`` but is
+now housed under the MeshPay namespace. It communicates via a pluggable
+``NetworkTransport`` and operates in the Mininet-WiFi simulation environment.
 """
 
 import time
@@ -21,34 +13,38 @@ from queue import Queue
 from typing import Dict, Optional, List
 from uuid import UUID, uuid4
 
-from mn_wifi.baseTypes import (
+from meshpay.types import (
     Address,
     ClientState,
     NodeType,
     TransferOrder,
+    KeyPair,
+    AuthorityName,
+    ConfirmationOrder,
+    TransactionStatus,
 )
-from mn_wifi.messages import (
+from meshpay.messages import (
     Message,
     MessageType,
     TransferRequestMessage,
     TransferResponseMessage,
+    ConfirmationRequestMessage,
 )
 from mn_wifi.node import Station
-from mn_wifi.transport import NetworkTransport, TransportKind
-from mn_wifi.tcp import TCPTransport
-from mn_wifi.udp import UDPTransport
-from mn_wifi.wifiDirect import WiFiDirectTransport
-from mn_wifi.clientLogger import ClientLogger
-from mn_wifi.baseTypes import KeyPair, AuthorityName
-from mn_wifi.authority import ConfirmationOrder, ConfirmationRequestMessage, TransactionStatus
+from meshpay.transport.transport import NetworkTransport, TransportKind
+from meshpay.transport.tcp import TCPTransport
+from meshpay.transport.udp import UDPTransport
+from meshpay.transport.wifiDirect import WiFiDirectTransport
+from meshpay.logger.clientLogger import ClientLogger
+
 
 class Client(Station):
-    """Client node which can be added to a *mininet-wifi* topology using *addStation*.
+    """Client node which can be added to a Mininet-WiFi topology using addStation.
 
-    The class embeds the previously standalone FastPay client logic while extending
-    :class:`mn_wifi.node.Station` so that it participates in the wireless network simulation
-    natively.  Upon construction the caller may choose one of the supported transport kinds or
-    inject an already configured :pydata:`NetworkTransport` instance.
+    The class embeds the FastPay client logic while extending Station so that it
+    participates in the wireless network simulation natively. Upon construction
+    the caller may choose one of the supported transport kinds or inject an
+    already configured NetworkTransport instance.
     """
 
     def __init__(
@@ -61,21 +57,8 @@ class Client(Station):
         position: Optional[List[float]] = None,
         **station_params,
     ) -> None:
-        """Create a new client station.
+        """Create a new client station."""
 
-        Args:
-            name:          Identifier for the station (e.g., *"user1"*).
-            transport_kind: Which built-in transport to create when *transport* is *None*.
-            transport:     Custom transport instance.  When provided *transport_kind* is ignored.
-            ip:            IP address in CIDR notation (defaults to *10.0.0.100/8*).
-            port:          TCP/UDP port on which the client will listen for replies.
-            position:      Optional initial position \[x, y, z].
-            **station_params: Additional arguments forwarded to :class:`mn_wifi.node.Station`.
-        """
-
-        # -------------------------------------------------------------------------------------
-        # Initialise the underlying Station
-        # -------------------------------------------------------------------------------------
         defaults = {
             "ip": ip,
             "range": 100,
@@ -84,9 +67,6 @@ class Client(Station):
         super().__init__(name, **defaults)  # type: ignore[arg-type]
 
         self.name = name
-        # -------------------------------------------------------------------------------------
-        # FastPay-specific pieces
-        # -------------------------------------------------------------------------------------
         self.address = Address(
             node_id=name,
             ip_address=ip.split("/")[0],
@@ -97,7 +77,6 @@ class Client(Station):
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
 
-        # Initialise client state with zero balance and a placeholder secret key.
         self.state = ClientState(
             name=name,
             address=self.address,
@@ -110,9 +89,6 @@ class Client(Station):
             received_certificates={},
         )
 
-        # ------------------------------------------------------------------
-        # Transport factory --------------------------------------------------
-        # ------------------------------------------------------------------
         if transport is not None:
             self.transport = transport
         else:
@@ -125,21 +101,12 @@ class Client(Station):
             else:
                 raise ValueError(f"Unsupported transport kind: {transport_kind}")
 
-        # Logger -------------------------------------------------------------
         self.logger = ClientLogger(name)
-
-        # Runtime control flag ----------------------------------------------
         self._running = False
         self._message_handler_thread: Optional[threading.Thread] = None
 
     def start_fastpay_services(self) -> bool:
-        """Boot-strap background processing threads and ready the chosen transport.
-
-        The method preserves the previous external behaviour: it must be called explicitly after
-        the authority instance is added to Mininet-WiFi so that the node's namespace exists.
-        """
-
-        # Connect transport (if the implementation supports/needs it)
+        """Boot-strap background processing threads and ready the transport."""
         if hasattr(self.transport, "connect"):
             try:
                 if not self.transport.connect():  # type: ignore[attr-defined]
@@ -150,8 +117,6 @@ class Client(Station):
                 return False
 
         self._running = True
-
-        # Spawn background threads -----------------------------------------------------------
         self._message_handler_thread = threading.Thread(
             target=self._message_handler_loop,
             daemon=True,
@@ -162,7 +127,7 @@ class Client(Station):
         return True
     
     def stop_fastpay_services(self) -> None:
-        """Stop the FastPay authority services."""
+        """Stop the FastPay client services."""
         self._running = False
         if hasattr(self.transport, "disconnect"):
             try:
@@ -180,18 +145,7 @@ class Client(Station):
         token_address: str,
         amount: int,
     ) -> bool:
-        """Broadcast a *transfer order* to the given *authorities*.
-
-        The method uses a **best-effort** strategy similar to the original Rust implementation:
-        a quorum is considered reached once *2/3 + 1* successful responses are collected.
-
-        Args:
-            recipient: Recipient account identifier.
-            amount: Amount to transfer.
-
-        Returns:
-            *True* when sending the transfer request, *False* otherwise.
-        """
+        """Broadcast a transfer order to the committee."""
         order = TransferOrder(
             order_id=uuid4(),
             sender=self.state.name,
@@ -200,17 +154,16 @@ class Client(Station):
             amount=amount,
             sequence_number=self.state.sequence_number,
             timestamp=time.time(),
-            signature=self.state.secret,  # TODO: cryptographic signatures
+            signature=self.state.secret,
         )
         request = TransferRequestMessage(transfer_order=order)
-        # Add the transfer order to the pending transfer list
         self.state.pending_transfer = order
 
         message = Message(
             message_id=uuid4(),
             message_type=MessageType.TRANSFER_REQUEST,
             sender=self.state.address,
-            recipient=None,  # Filled per authority below
+            recipient=None,
             timestamp=time.time(),
             payload=request.to_payload(),
         )
@@ -224,9 +177,7 @@ class Client(Station):
         )
 
         successes = 0
-        for index, auth in enumerate(self.state.committee):
-            # Create a *fresh* message per authority so that we do not overwrite
-            # the *recipient* field of a previously sent instance.
+        for auth in self.state.committee:
             msg = Message(
                 message_id=uuid4(),
                 message_type=transfer_request.message_type,
@@ -249,14 +200,7 @@ class Client(Station):
         return True
     
     def _validate_transfer_response(self, transfer_response: TransferResponseMessage) -> bool:
-        """Validate a transfer response.
-        
-        Args:
-            transfer_response: Transfer response to validate
-            
-        Returns:
-            True if valid, False otherwise
-        """
+        """Validate a transfer response received from an authority."""
         if transfer_response.transfer_order.sender != self.state.name:
             self.logger.error(f"Transfer {transfer_response.transfer_order.order_id} failed: sender mismatch")
             return False
@@ -264,19 +208,10 @@ class Client(Station):
         if transfer_response.transfer_order.sequence_number != self.state.sequence_number:
             self.logger.error(f"Transfer {transfer_response.transfer_order.order_id} failed: sequence number mismatch")
             return False
-
-        # TODO: check if the transfer order signature is valid
         return True
     
     def handle_transfer_response(self, transfer_response: TransferResponseMessage) -> bool:
-        """Handle transfer response from authority.
-        
-        Args:
-            transfer_response: Transfer response to process
-            
-        Returns:
-            True if handled successfully, False otherwise
-        """
+        """Handle transfer response from authority."""
         try:
             if not self._validate_transfer_response(transfer_response):
                 return False
@@ -289,36 +224,20 @@ class Client(Station):
             return False
         
     def _validate_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
-        """Validate a confirmation order.
-        
-        Args:
-            confirmation_order: Confirmation order to validate
-            
-        Returns:
-            True if valid, False otherwise
-        """
+        """Validate a confirmation order (placeholder)."""
         return True     
         
     def handle_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
-        """Handle confirmation order from committee.
-        
-        Args:
-            confirmation_order: Confirmation order to process
-            
-        Returns:
-            True if handled successfully, False otherwise
-        """
+        """Handle confirmation order from committee."""
         try:
             transfer = confirmation_order.transfer_order
             
             if transfer.recipient != self.state.name:
                 return False
             
-            # Check if the confirmation order is valid
             if not self._validate_confirmation_order(confirmation_order):
                 return False
             
-            # Update balance
             self.state.balance -= transfer.amount
 
             self.logger.info(
@@ -329,12 +248,10 @@ class Client(Station):
             
         except Exception as e:
             self.logger.error(f"Error handling confirmation order: {e}")
-            self.performance_metrics.record_error()
+            # Note: client has no performance metrics collector yet
             return False
 
-    def broadcast_confirmation(
-        self,
-    ) -> None:
+    def broadcast_confirmation(self) -> None:
         """Create and broadcast a ConfirmationOrder (internal helper)."""
         if len(self.state.sent_certificates) < 2/3 * len(self.state.committee) + 1:
             self.logger.error("Not enough transfer certificates to confirm")
@@ -352,7 +269,6 @@ class Client(Station):
 
         req = ConfirmationRequestMessage(confirmation_order=confirmation)
 
-        # 1. Send to every authority so they finalise balances.
         for auth in self.state.committee:
             msg = Message(
                 message_id=uuid4(),
@@ -364,21 +280,13 @@ class Client(Station):
             )
             self.transport.send_message(msg, auth.address)
 
-        # 2. Send to recipient ------------------------------------------------------------
-        # TODO: send to recipient
-
-        # 3. Update the client state
         self.state.pending_transfer = None
         self.state.sequence_number += 1
         self.state.sent_certificates = []
         self.state.balance -= order.amount
 
     def _process_message(self, message: Message) -> None:
-        """Process incoming message.
-        
-        Args:
-            message: Message to process
-        """
+        """Process incoming message."""
         try:
             if message.message_type == MessageType.TRANSFER_RESPONSE:
                 request = TransferResponseMessage.from_payload(message.payload)
@@ -387,9 +295,6 @@ class Client(Station):
             if message.message_type == MessageType.CONFIRMATION_REQUEST:
                 request = ConfirmationRequestMessage.from_payload(message.payload)
                 self.handle_confirmation_order(request.confirmation_order)
-                
-            # elif message.message_type == MessageType.SYNC_REQUEST:
-            #     self._handle_sync_request(message)
                 
         except Exception as e:
             self.logger.error(f"Error processing message: {e}")
@@ -401,8 +306,12 @@ class Client(Station):
                 message = self.transport.receive_message(timeout=1.0)
                 if message:
                     self._process_message(message)
-            except Exception as exc:  # pragma: no cover – robust against transport glitches
+            except Exception as exc:  # pragma: no cover
                 if hasattr(self, "logger"):
                     self.logger.error(f"Error in message handler loop: {exc}")
                 time.sleep(0.2)
-    
+
+__all__ = ["Client"]
+
+
+

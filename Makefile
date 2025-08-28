@@ -2,11 +2,13 @@ MININET = mininet/mininet/*.py
 MININET_WIFI = mn_wifi/*.py
 TEST = mn_wifi/test/*.py
 EXAMPLES = mn_wifi/examples/*.py
+MESHPAY = meshpay/*.py meshpay/*/*.py meshpay/*/*/*.py
 MN = bin/mn
 PYTHON ?= python
+export PYTHONDONTWRITEBYTECODE=1
 PYMN = $(PYTHON) -B bin/mn
 BIN = $(MN)
-PYSRC = $(MININET) $(MININET_WIFI) $(TEST) $(EXAMPLES) $(BIN)
+PYSRC = $(MININET) $(MININET_WIFI) $(TEST) $(EXAMPLES) $(BIN) $(MESHPAY)
 MNEXEC = mnexec
 MANPAGES = mn.1 mnexec.1
 P8IGN = E251,E201,E302,E202,E126,E127,E203,E226
@@ -56,13 +58,13 @@ install-manpages: $(MANPAGES)
 	install -D -t $(MANDIR) $(MANPAGES)
 
 install: install-mnexec install-manpages
-	$(PYTHON) setup.py install
+	$(PYTHON) -B setup.py install
 
 develop: $(MNEXEC) $(MANPAGES)
 # 	Perhaps we should link these as well
 	install $(MNEXEC) $(BINDIR)
 	install $(MANPAGES) $(MANDIR)
-	$(PYTHON) setup.py develop
+	$(PYTHON) -B setup.py develop
 
 man: $(MANPAGES)
 

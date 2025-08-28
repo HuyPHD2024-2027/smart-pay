@@ -34,11 +34,11 @@ import time
 import uuid
 from typing import Dict, List, Optional, Tuple
 
-from mn_wifi.baseTypes import (
+from meshpay.types import (
     TransferOrder,
 )
 from mn_wifi.cli import CLI
-from mn_wifi.client import Client
+from meshpay.nodes.client import Client
 from mn_wifi.node import Station, Node_wifi
 from mn_wifi.services.core.config import SUPPORTED_TOKENS
 

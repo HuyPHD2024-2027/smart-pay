@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict, Optional
 from dataclasses import asdict
 
-from mn_wifi.baseTypes import NetworkMetrics
+from meshpay.types import NetworkMetrics
 
 
 # --------------------------------------------------------------------------------------
