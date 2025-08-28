@@ -6,8 +6,8 @@ with Wi-Fi Direct as just another `NetworkTransport`.
 
 from __future__ import annotations
 
-from mn_wifi.baseTypes import Address
-from mn_wifi.tcp import TCPTransport
+from meshpay.types import Address
+from meshpay.transport.tcp import TCPTransport
 
 
 class WiFiDirectTransport(TCPTransport):  # type: ignore[misc]

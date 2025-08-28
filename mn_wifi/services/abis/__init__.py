@@ -4,6 +4,7 @@ ABI (Application Binary Interface) definitions for smart contracts.
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+import importlib.resources as pkg_resources
 
 _ABI_DIR: Path = Path(__file__).resolve().parent
 

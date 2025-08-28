@@ -1,4 +1,4 @@
-"""Base types and data structures for FastPay WiFi simulation."""
+"""Base types and data structures for MeshPay offline payment system."""
 
 from __future__ import annotations
 
@@ -218,7 +218,7 @@ class ClientState:
     stake: int = 0
 
     def next_sequence(self) -> int:
-        """Return the current sequence number *and* increment internal counter."""
+        """Return the current sequence number and increment the internal counter."""
         seq = self.sequence_number
         self.sequence_number += 1
         return seq
@@ -229,3 +229,4 @@ class GatewayState:
     
     name: str
     address: Address
+

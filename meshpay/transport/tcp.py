@@ -16,8 +16,9 @@ from uuid import UUID
 if TYPE_CHECKING:
     pass
 
-from mn_wifi.baseTypes import Address, NodeType
-from mn_wifi.messages import Message, MessageType
+from meshpay.types import Address, NodeType
+from meshpay.messages import Message, MessageType
+
 
 
 class TCPTransport:

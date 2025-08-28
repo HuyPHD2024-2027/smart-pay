@@ -17,8 +17,8 @@ from uuid import UUID
 import tempfile
 import os
 
-from mn_wifi.baseTypes import Address, NodeType
-from mn_wifi.messages import Message, MessageType
+from meshpay.types import Address, NodeType
+from meshpay.messages import Message, MessageType
 
 
 class UDPTransport:  # pylint: disable=too-few-public-methods

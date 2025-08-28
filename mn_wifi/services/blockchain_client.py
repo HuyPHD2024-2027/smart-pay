@@ -12,9 +12,9 @@ from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
 from mn_wifi.services.abis import MeshPayABI, ERC20ABI
-from mn_wifi.services.core.config import settings, SUPPORTED_TOKENS
-from mn_wifi.authorityLogger import AuthorityLogger
-from mn_wifi.baseTypes import TransferOrder
+from mn_wifi.services.core import settings, SUPPORTED_TOKENS
+from meshpay.logger.authorityLogger import AuthorityLogger
+
 
 @dataclass
 class AccountInfo:
@@ -50,6 +50,8 @@ class BlockchainClient:
         self.meshpay_contract = None
         self.account = None
         self.logger = logger
+    
+    def start(self) -> None:
         self._initialize_connection()
     
     def _initialize_connection(self) -> None:

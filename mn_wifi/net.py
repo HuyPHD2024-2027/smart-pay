@@ -46,9 +46,9 @@ from mn_wifi.wwan.link import WWANLink
 from mn_wifi.wwan.net import Mininet_WWAN
 from mn_wifi.btvirt.net import Mininet_btvirt
 from mn_wifi.wwan.node import WWANNode
-from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
-from mn_wifi.gateway import Gateway
+from meshpay.nodes.authority import WiFiAuthority
+from meshpay.nodes.client import Client
+from meshpay.api.gateway import Gateway
 
 VERSION = "2.6"
 

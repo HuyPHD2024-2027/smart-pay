@@ -50,13 +50,13 @@ from mininet.link import TCLink
 from mn_wifi.link import wmediumd, mesh
 from mn_wifi.wmediumdConnector import interference
 from mn_wifi.net import Mininet_wifi
-from mn_wifi.authority import WiFiAuthority
-from mn_wifi.client import Client
-from mn_wifi.cli_fastpay import FastPayCLI
-from mn_wifi.transport import TransportKind
-from mn_wifi.baseTypes import KeyPair, AccountOffchainState, SignedTransferOrder
-from mn_wifi.bridge import Bridge
-from mn_wifi.gateway import Gateway
+from meshpay.nodes.authority import WiFiAuthority
+from meshpay.nodes.client import Client
+from meshpay.cli_fastpay import FastPayCLI
+from meshpay.transport import TransportKind
+from meshpay.types import KeyPair, AccountOffchainState, SignedTransferOrder
+from meshpay.api.bridge import Bridge
+from meshpay.api.gateway import Gateway
 from mn_wifi.examples.demoCommon import (
     open_xterms as _open_xterms,
     close_xterms as _close_xterms,
@@ -162,15 +162,16 @@ def create_mesh_network_with_internet(
     for i in range(1, num_clients + 1):
         net.addLink(clients[i-1], cls=mesh, ssid='meshNet',
                 intf=f'user{i}-wlan0', channel=5, ht_cap='HT40+')
-    net.addLink(gateway, cls=mesh, ssid='meshNet',
+    if enable_internet:
+        net.addLink(gateway, cls=mesh, ssid='meshNet',
                 intf=f'gw-wlan0', channel=5, ht_cap='HT40+')
     
-    # # Add gateway connection if internet is enabled
-    # if enable_internet:
-    #     info("*** Configuring internet gateway connections\n")
-    #     # # Connect first authority to the internet gateway host via wired link
-    #     for i in range(1, num_authorities + 1):
-    #         net.addLink(authorities[i-1], gateway, cls=TCLink)
+    # Add gateway connection if internet is enabled
+    if enable_internet:
+        info("*** Configuring internet gateway connections\n")
+        # # Connect first authority to the internet gateway host via wired link
+        for i in range(1, num_authorities + 1):
+            net.addLink(authorities[i-1], gateway, cls=TCLink)
 
 
     # Configure mobility if enabled
@@ -186,12 +187,45 @@ def create_mesh_network_with_internet(
             seed=42
         )
     
+    # Assign committee (all authorities) to each client
+    for client in clients:
+        client.state.committee = authorities
+
     # Enable plotting if requested
     if enable_plot:
         info("*** Plotting mesh network\n")
         net.plotGraph(max_x=200, max_y=150)
 
     return net, authorities, clients, gateway, bridge
+
+def setup_test_accounts(authorities):
+    """Setup test accounts on all authorities."""
+    
+    info("*** Setting up test accounts\n")
+    
+    test_accounts = {
+        "user1": {
+            1000,
+        "user2": 800,
+        "user3": 1200,
+    }
+    
+    for authority in authorities:
+        if hasattr(authority, 'state'):
+            from mn_wifi.baseTypes import Account
+            
+            for user_name, balance in test_accounts.items():
+                account = Account(
+                    address=user_name,
+                    balance=balance,
+                    sequence_number=0,
+                    last_update=time.time()
+                )
+                authority.state.accounts[user_name] = account
+            
+            info(f"   ✅ {authority.name}: Setup {len(test_accounts)} accounts\n")
+        else:
+            info(f"   ⚠️  {authority.name}: Stub implementation, no accounts\n")
 
 
 def configure_internet_access(
@@ -277,12 +311,15 @@ def main() -> None:
         # Start FastPay services on all nodes
         info("*** Starting FastPay services on all nodes\n")
         for auth in authorities:
-            auth.start_fastpay_services()
+            auth.start_fastpay_services(args.internet)
         
+        setup_test_accounts(authorities)
+
         for client in clients:
             client.start_fastpay_services()
         
-        gateway.start_gateway_services()
+        if gateway:
+            gateway.start_gateway_services()
         
         # Wait for mesh to stabilize
         info("*** Waiting for mesh network to stabilize\n")
