@@ -13,6 +13,8 @@ mn_wifi/authority.py
 mn_wifi/authorityLogger.py
 mn_wifi/baseTypes.py
 mn_wifi/bmv2.py
+mn_wifi/bridge.py
+mn_wifi/bridgeLogger.py
 mn_wifi/clean.py
 mn_wifi/cli.py
 mn_wifi/cli_fastpay.py
@@ -22,6 +24,7 @@ mn_wifi/committee.py
 mn_wifi/devices.py
 mn_wifi/energy.py
 mn_wifi/frequency.py
+mn_wifi/gateway.py
 mn_wifi/link.py
 mn_wifi/manetRoutingProtocols.py
 mn_wifi/messages.py
@@ -68,7 +71,6 @@ mn_wifi/examples/demoCommon.py
 mn_wifi/examples/demoWifiDirect.py
 mn_wifi/examples/fastpay_demo.py
 mn_wifi/examples/fastpay_mesh_demo.py
-mn_wifi/examples/fastpay_mesh_internet_demo.py
 mn_wifi/examples/fastpay_p2p_benchmark.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
@@ -76,7 +78,7 @@ mn_wifi/examples/handover_bgscan.py
 mn_wifi/examples/ieee80211p.py
 mn_wifi/examples/mesh.py
 mn_wifi/examples/meshAP.py
-mn_wifi/examples/mesh_internet_bridge.py
+mn_wifi/examples/meshpay_demo.py
 mn_wifi/examples/miniedit.py
 mn_wifi/examples/mobility.py
 mn_wifi/examples/mobilityModel.py
@@ -112,6 +114,16 @@ mn_wifi/examples/p4/__init__.py
 mn_wifi/examples/p4/ap-runtime.json
 mn_wifi/examples/p4/basic.json
 mn_wifi/examples/p4/p4.py
+mn_wifi/services/__init__.py
+mn_wifi/services/blockchain_client.py
+mn_wifi/services/json.py
+mn_wifi/services/shard.py
+mn_wifi/services/abis/ERC20.json
+mn_wifi/services/abis/MeshPayAuthorities.json
+mn_wifi/services/abis/MeshPayMVP.json
+mn_wifi/services/abis/__init__.py
+mn_wifi/services/core/__init__.py
+mn_wifi/services/core/config.py
 mn_wifi/sixLoWPAN/__init__.py
 mn_wifi/sixLoWPAN/clean.py
 mn_wifi/sixLoWPAN/link.py

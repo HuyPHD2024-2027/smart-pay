@@ -75,6 +75,7 @@ class TransferRequestMessage:
                 'order_id': str(self.transfer_order.order_id),
                 'sender': str(self.transfer_order.sender),
                 'recipient': str(self.transfer_order.recipient),
+                'token_address': str(self.transfer_order.token_address),
                 'amount': self.transfer_order.amount,
                 'sequence_number': self.transfer_order.sequence_number,
                 'timestamp': self.transfer_order.timestamp,

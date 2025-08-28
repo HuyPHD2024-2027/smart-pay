@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-
-"""
-Example usage of WiFiAuthority with Mininet-WiFi addStation.
-
-This script demonstrates how to:
-1. Import WiFiAuthority from mn_wifi
-2. Create authorities using addStation with cls=WiFiAuthority
-3. Set up a FastPay committee network using standard infrastructure mode
-4. Test basic functionality with access point connectivity
-5. Enable authority communication through standard WiFi infrastructure
-6. Test transfer order broadcasting and verification
-
-This uses standard WiFi infrastructure with an access point that all
-authorities connect to for communication.
-"""
-
 import time
 import sys
 import socket
