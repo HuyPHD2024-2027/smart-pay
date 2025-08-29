@@ -43,6 +43,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 from urllib.parse import urlparse, parse_qs
 from uuid import uuid4, UUID
 import dataclasses
+import random
 
 from mininet.log import info, setLogLevel
 from mininet.nodelib import NAT
@@ -104,8 +105,8 @@ def create_mesh_network_with_internet(
             committee_members=committee - {name},
             ip=f"10.0.0.{10 + i}/8",
             port=8000 + i,
-            position=[20 + (i * 25), 40, 0],
-            range=40,
+            # position=[20 + (i * 25), 40, 0],
+            range=58,
             txpower=20,
         )
         authorities.append(auth)
@@ -120,7 +121,7 @@ def create_mesh_network_with_internet(
             ip=f"10.0.0.{20 + i}/8",
             port=9000 + i,
             # position=[30 + (i * 20), 20, 0],
-            range=30,
+            range=58,
             txpower=15,
         )
         clients.append(client)
@@ -198,34 +199,54 @@ def create_mesh_network_with_internet(
 
     return net, authorities, clients, gateway, bridge
 
-def setup_test_accounts(authorities):
-    """Setup test accounts on all authorities."""
-    
+def setup_test_accounts(authorities: List[WiFiAuthority], clients: List[Client]) -> None:
+    """Initialise each client account on all authorities with random balances.
+
+    Balances are assigned per supported token to seed off-chain state so
+    transfers validate immediately in demos.
+    """
+
     info("*** Setting up test accounts\n")
-    
-    test_accounts = {
-        "user1": {
-            1000,
-        "user2": 800,
-        "user3": 1200,
-    }
-    
+
+    from mn_wifi.services.core.config import SUPPORTED_TOKENS
+    from mn_wifi.services.blockchain_client import TokenBalance
+
     for authority in authorities:
-        if hasattr(authority, 'state'):
-            from mn_wifi.baseTypes import Account
-            
-            for user_name, balance in test_accounts.items():
-                account = Account(
-                    address=user_name,
-                    balance=balance,
-                    sequence_number=0,
-                    last_update=time.time()
+        if not hasattr(authority, 'state'):
+            info(f"   ⚠️  {authority.name}: No state found, skipping\n")
+            continue
+
+        for client in clients:
+            balances_map = {}
+            for symbol, cfg in SUPPORTED_TOKENS.items():
+                token_address = cfg.get('address')
+                if not token_address:
+                    continue
+                decimals = int(cfg.get('decimals', 18))
+
+                meshpay_balance = round(random.uniform(100, 1000), 3)
+                wallet_balance = round(random.uniform(0, 250), 3)
+                total_balance = round(meshpay_balance + wallet_balance, 3)
+
+                balances_map[token_address] = TokenBalance(
+                    token_symbol=symbol,
+                    token_address=token_address,
+                    wallet_balance=wallet_balance,
+                    meshpay_balance=meshpay_balance,
+                    total_balance=total_balance,
+                    decimals=decimals,
                 )
-                authority.state.accounts[user_name] = account
-            
-            info(f"   ✅ {authority.name}: Setup {len(test_accounts)} accounts\n")
-        else:
-            info(f"   ⚠️  {authority.name}: Stub implementation, no accounts\n")
+
+            authority.state.accounts[client.name] = AccountOffchainState(
+                address=client.name,
+                balances=balances_map,
+                sequence_number=0,
+                last_update=time.time(),
+                pending_confirmation=None,  # type: ignore[arg-type]
+                confirmed_transfers={},
+            )
+
+        info(f"   ✅ {authority.name}: Setup {len(clients)} client accounts\n")
 
 
 def configure_internet_access(
@@ -313,7 +334,7 @@ def main() -> None:
         for auth in authorities:
             auth.start_fastpay_services(args.internet)
         
-        setup_test_accounts(authorities)
+        setup_test_accounts(authorities, clients)
 
         for client in clients:
             client.start_fastpay_services()

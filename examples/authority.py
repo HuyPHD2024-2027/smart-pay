@@ -820,22 +820,22 @@ def setup_test_accounts(authorities):
         "user4": 500
     }
     
-    for authority in authorities:
-        if hasattr(authority, 'state'):
-            from mn_wifi.baseTypes import Account
+    # for authority in authorities:
+    #     if hasattr(authority, 'state'):
+    #         from meshpay.types import AccountOffchainState
             
-            for user_name, balance in test_accounts.items():
-                account = Account(
-                    address=user_name,
-                    balance=balance,
-                    sequence_number=0,
-                    last_update=time.time()
-                )
-                authority.state.accounts[user_name] = account
+    #         for user_name, balance in test_accounts.items():
+    #             account = AccountOffchainState(
+    #                 address=user_name,
+    #                 balances=balance,
+    #                 sequence_number=0,
+    #                 last_update=time.time()
+    #             )
+    #             authority.state.accounts[user_name] = account
             
-            info(f"   ✅ {authority.name}: Setup {len(test_accounts)} accounts\n")
-        else:
-            info(f"   ⚠️  {authority.name}: Stub implementation, no accounts\n")
+    #         info(f"   ✅ {authority.name}: Setup {len(test_accounts)} accounts\n")
+    #     else:
+    #         info(f"   ⚠️  {authority.name}: Stub implementation, no accounts\n")
 
 
 def test_authority_functionality(authorities):
