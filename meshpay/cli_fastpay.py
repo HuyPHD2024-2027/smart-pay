@@ -302,7 +302,11 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
             return
             
         sender = args[0]
-
+        client = self._find_node(sender)
+        if client is None:
+            print(f"❌ Unknown client '{sender}'")
+            return
+        
         print(f"🚀 {sender} → broadcast confirmation")
         try:
             client.broadcast_confirmation()
