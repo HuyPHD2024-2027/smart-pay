@@ -1,0 +1,41 @@
+{
+  "timestamp": "2025-10-09T00:00:00Z",
+  "task": "Pattern proposal for offline P2P payments combining mesh routing and DAG consensus",
+  "options": [
+    {
+      "name": "Option A: Epidemic routing + naive tip selection",
+      "pros": ["Simple", "Robust under churn"],
+      "cons": ["High overhead", "Slower convergence"]
+    },
+    {
+      "name": "Option B: PRoPHET routing + weighted tip selection",
+      "pros": ["Efficient propagation", "Faster confirmation", "Tunable security"],
+      "cons": ["Utility estimation complexity", "Reputation hygiene required"]
+    },
+    {
+      "name": "Option C: Geo/cluster aware + partitioned DAG",
+      "pros": ["Scales in dense deployments"],
+      "cons": ["Higher complexity", "Cross‑partition reconciliation"]
+    },
+    {
+      "name": "Option D: Deterministic opportunistic + credential weighted approvals",
+      "pros": ["Stronger resistance for high‑value"],
+      "cons": ["Onboarding overhead", "Credential management complexity"]
+    }
+  ],
+  "chosen_solution": {
+    "name": "Option B: PRoPHET routing + weighted tip selection",
+    "rationale": "Balances propagation efficiency, resource constraints, and rapid local confidence while preserving eventual finality"
+  },
+  "applied_changes": [
+    "Created docs/patterns/offline-p2p-payments-mesh-dag-pattern.md",
+    "Recorded decision and design details"
+  ],
+  "status": "success",
+  "next_steps": [
+    "Prototype RoutingService with utility queues and dedup",
+    "Implement DAG tip selection and conflict rules",
+    "Design compact DAG sync (IBLT/minisketch)",
+    "Add simulation tests for mobility and partition"
+  ]
+}
