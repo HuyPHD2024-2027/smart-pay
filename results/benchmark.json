@@ -1,9 +1,20 @@
 {
-  "transactions": 500,
-  "success_ratio": 1.0,
-  "min_latency_ms": 684.19,
-  "avg_latency_ms": 1574.96,
-  "p95_latency_ms": 2264.15,
-  "max_latency_ms": 10052.4,
-  "throughput_tps": 0.63
+  "run_label": "benchmark",
+  "duration_s": 31.76534914970398,
+  "transactions_started": 112.0,
+  "transactions_succeeded": 370.0,
+  "transactions_failed": 0.0,
+  "success_rate_pct": 330.35714285714283,
+  "throughput_tps": 11.647912266169692,
+  "network_tx_bps": 5077.230514291481,
+  "network_rx_bps": 20500.325588458658,
+  "min_latency_ms": 0.0,
+  "avg_latency_ms": 0.0,
+  "p50_latency_ms": 0.0,
+  "p95_latency_ms": 0.0,
+  "p99_latency_ms": 0.0,
+  "max_latency_ms": 0.0,
+  "latency_samples": 0.0,
+  "bytes_sent": 20160.0,
+  "bytes_received": 81400.0
 }
