@@ -200,7 +200,7 @@ def create_mesh_network_with_internet(
 
     return net, authorities, clients, gateway, bridge
 
-def                                                                                                                                                                                                                                                                                                                                                                                                                                 (authorities: List[WiFiAuthority], clients: List[Client]) -> None:
+def setup_test_accounts(authorities: List[WiFiAuthority], clients: List[Client]) -> None:
     """Initialise each client account on all authorities with random balances.
 
     Balances are assigned per supported token to seed off-chain state so
