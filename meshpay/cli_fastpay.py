@@ -214,6 +214,23 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
             state_dict = asdict(node.state)  # type: ignore[arg-type]
 
             full_info = {"state": state_dict}
+            
+            # Add weighted voting metrics for authorities
+            if hasattr(node.state, "transaction_count"):
+                full_info["weighted_voting"] = {
+                    "transaction_count": node.state.transaction_count,
+                    "error_count": node.state.error_count,
+                    "voting_weight": node.state.voting_weight,
+                    "net_performance": max(
+                        node.state.transaction_count - node.state.error_count,
+                        0
+                    )
+                }
+                # Get normalized weight if committee is available
+                if hasattr(node, "get_current_normalized_weight"):
+                    full_info["weighted_voting"]["normalized_weight"] = (
+                        node.get_current_normalized_weight()  # type: ignore[attr-defined]
+                    )
 
             print(json.dumps(full_info, indent=2, default=str))
 
@@ -238,31 +255,60 @@ class FastPayCLI(CLI):  # pylint: disable=too-many-instance-attributes
         Usage: voting_power
         """
 
-        # Gather raw statistics --------------------------------------------------
+        # Gather raw statistics from state.voting_weight ---------------------------
         scores: Dict[str, int] = {}
+        weights: Dict[str, float] = {}
+        
         for auth in self.authorities:
-            if hasattr(auth, "get_performance_stats"):
+            # Use actual state fields for weighted voting
+            if hasattr(auth.state, "transaction_count"):
+                tx_count = auth.state.transaction_count
+                err_count = auth.state.error_count
+                score = max(tx_count - err_count, 0)
+                scores[auth.name] = score
+                
+                # Get normalized weight from committee if available
+                if hasattr(auth, "get_current_normalized_weight"):
+                    weights[auth.name] = auth.get_current_normalized_weight()  # type: ignore[attr-defined]
+                else:
+                    weights[auth.name] = 0.0
+            elif hasattr(auth, "get_performance_stats"):
+                # Fallback to performance stats
                 stats = auth.get_performance_stats()  # type: ignore[attr-defined]
                 score = max(int(stats.get("transaction_count", 0)) - int(stats.get("error_count", 0)), 0)
+                scores[auth.name] = score
+                weights[auth.name] = 0.0
             else:
-                score = 0
-            scores[auth.name] = score
+                scores[auth.name] = 0
+                weights[auth.name] = 0.0
 
         total = sum(scores.values())
 
-        # Derive voting power (normalised) ---------------------------------------
+        # Derive voting power (normalised) if weights not available ---------------
         voting_power: Dict[str, float] = {}
-        if total == 0:
+        if sum(weights.values()) > 0:
+            # Use pre-computed normalized weights from committee
+            voting_power = {name: round(weight, 3) for name, weight in weights.items()}
+        elif total == 0:
             # All zeros → equal distribution
             equal = 1.0 / len(self.authorities) if self.authorities else 0.0
             voting_power = {name: equal for name in scores}
         else:
+            # Compute normalized weights on-the-fly
             voting_power = {name: round(score / total, 3) for name, score in scores.items()}
 
-        # Pretty-print result ------------------------------------------------------
+        # Pretty-print result with detailed metrics --------------------------------
         print("⚖️  Current voting power (weighted by performance):")
-        for name, power in voting_power.items():
-            print(f"   • {name}: {power:.3f}")
+        print(f"   Quorum threshold: {2/3:.3f} (2/3 of total weight)")
+        print()
+        for name in voting_power:
+            score = scores.get(name, 0)
+            power = voting_power[name]
+            print(f"   • {name}:")
+            print(f"       Net performance: {score}")
+            print(f"       Normalized weight: {power:.3f}")
+        print()
+        print(f"   Total weight: {sum(voting_power.values()):.3f}")
 
     # 5. ------------------------------------------------------------------
     def do_performance(self, line: str) -> None:  # noqa: D401 – imperative form

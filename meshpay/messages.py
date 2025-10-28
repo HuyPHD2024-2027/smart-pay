@@ -104,6 +104,7 @@ class TransferResponseMessage:
     success: bool
     error_message: Optional[str] = None
     authority_signature: Optional[str] = None
+    authority_weight: float = 0.0  # Authority's voting weight at signing time
     
     def to_payload(self) -> Dict[str, Any]:
         """Convert to message payload."""
@@ -111,7 +112,8 @@ class TransferResponseMessage:
             'transfer_order': asdict(self.transfer_order),
             'success': self.success,
             'error_message': self.error_message,
-            'authority_signature': self.authority_signature
+            'authority_signature': self.authority_signature,
+            'authority_weight': self.authority_weight
         }
     
     @classmethod
@@ -121,7 +123,8 @@ class TransferResponseMessage:
             transfer_order=TransferOrder(**payload['transfer_order']),
             success=payload['success'],
             error_message=payload.get('error_message'),
-            authority_signature=payload.get('authority_signature')
+            authority_signature=payload.get('authority_signature'),
+            authority_weight=payload.get('authority_weight', 0.0)
         )
 
 

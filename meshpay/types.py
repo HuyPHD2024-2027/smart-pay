@@ -90,6 +90,9 @@ class ConfirmationOrder:
     authority_signatures: List[str]
     timestamp: float
     status: TransactionStatus = TransactionStatus.PENDING
+    # Weighted voting fields
+    weighted_certificates: List[WeightedCertificate] = field(default_factory=list)
+    total_weight: float = 0.0
     
     def __post_init__(self) -> None:
         """Initialise defaults and sanitise nested fields.
@@ -158,6 +161,16 @@ class AccountOffchainState:
             self.balances = {}
 
 @dataclass
+class WeightedCertificate:
+    """Certificate with authority weight at signing time."""
+    
+    authority_name: str
+    authority_signature: str
+    weight: float
+    timestamp: float
+
+
+@dataclass
 class AuthorityState:
     """State maintained by an authority node."""
     
@@ -170,6 +183,10 @@ class AuthorityState:
     last_sync_time: float = 0.0
     stake: int = 0
     balance: int = 0
+    # Performance tracking for weight calculation
+    transaction_count: int = 0
+    error_count: int = 0
+    voting_weight: float = 0.0
     
     def __post_init__(self) -> None:
         """Initialize default values."""
@@ -216,6 +233,9 @@ class ClientState:
     # or received certificates).
     balance: int = 0
     stake: int = 0
+    # Weighted voting fields
+    weighted_certificates: List[WeightedCertificate] = field(default_factory=list)
+    quorum_reached_time: Optional[float] = None
 
     def next_sequence(self) -> int:
         """Return the current sequence number and increment the internal counter."""

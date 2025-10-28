@@ -22,6 +22,7 @@ from meshpay.types import (
     AuthorityName,
     ConfirmationOrder,
     TransactionStatus,
+    WeightedCertificate,
 )
 from meshpay.messages import (
     Message,
@@ -87,6 +88,8 @@ class Client(Station):
             committee=[],
             sent_certificates=[],
             received_certificates={},
+            weighted_certificates=[],
+            quorum_reached_time=None,
         )
 
         if transport is not None:
@@ -210,13 +213,51 @@ class Client(Station):
             return False
         return True
     
-    def handle_transfer_response(self, transfer_response: TransferResponseMessage) -> bool:
-        """Handle transfer response from authority."""
+    def handle_transfer_response(
+        self,
+        transfer_response: TransferResponseMessage,
+        authority_name: str = "unknown",
+    ) -> bool:
+        """Handle transfer response from authority with weighted certificate tracking.
+        
+        Args:
+            transfer_response: Response message from authority.
+            authority_name: Name of the responding authority.
+            
+        Returns:
+            True if response was successfully processed.
+        """
         try:
             if not self._validate_transfer_response(transfer_response):
                 return False
             
+            # Store traditional certificate for backward compatibility
             self.state.sent_certificates.append(transfer_response)
+            
+            # Create and store weighted certificate
+            weighted_cert = WeightedCertificate(
+                authority_name=authority_name,
+                authority_signature=transfer_response.authority_signature or "",
+                weight=transfer_response.authority_weight,
+                timestamp=time.time(),
+            )
+            self.state.weighted_certificates.append(weighted_cert)
+            
+            # Compute total weight and check for quorum
+            total_weight = sum(cert.weight for cert in self.state.weighted_certificates)
+            
+            # Get total committee weight (should be 1.0 for normalized weights)
+            total_committee_weight = 1.0
+            quorum_threshold = 2.0 / 3.0
+            
+            # Check if weighted quorum is reached
+            if total_weight >= quorum_threshold and self.state.quorum_reached_time is None:
+                self.state.quorum_reached_time = time.time()
+                self.logger.info(
+                    f"Weighted quorum reached: {total_weight:.3f} / {total_committee_weight:.3f} "
+                    f"(threshold: {quorum_threshold:.3f}) with {len(self.state.weighted_certificates)} certificates"
+                )
+            
             return True
             
         except Exception as e:
@@ -252,23 +293,47 @@ class Client(Station):
             return False
 
     def broadcast_confirmation(self) -> None:
-        """Create and broadcast a ConfirmationOrder (internal helper)."""
-        if len(self.state.sent_certificates) < 2/3 * len(self.state.committee) + 1:
-            self.logger.error("Not enough transfer certificates to confirm")
+        """Create and broadcast a ConfirmationOrder using weighted quorum.
+        
+        This method checks if weighted quorum (>= 2/3 total weight) has been reached
+        before broadcasting the confirmation order to all committee members.
+        """
+        # Check weighted quorum
+        total_weight = sum(cert.weight for cert in self.state.weighted_certificates)
+        quorum_threshold = 2.0 / 3.0
+        
+        if total_weight < quorum_threshold:
+            self.logger.error(
+                f"Not enough weighted certificates to confirm: "
+                f"total_weight={total_weight:.3f}, required={quorum_threshold:.3f}"
+            )
             return
         
-        transfer_signatures = [certificate.authority_signature for certificate in self.state.sent_certificates]
+        # Gather both traditional signatures and weighted certificates
+        transfer_signatures = [
+            certificate.authority_signature 
+            for certificate in self.state.sent_certificates
+        ]
+        
         order = self.state.pending_transfer
+        if order is None:
+            self.logger.error("No pending transfer to confirm")
+            return
+        
+        # Create confirmation order with weighted certificates
         confirmation = ConfirmationOrder(
             order_id=order.order_id,
             transfer_order=order,
             authority_signatures=transfer_signatures,
             timestamp=time.time(),
             status=TransactionStatus.CONFIRMED,
+            weighted_certificates=self.state.weighted_certificates.copy(),
+            total_weight=total_weight,
         )
 
         req = ConfirmationRequestMessage(confirmation_order=confirmation)
 
+        # Broadcast to all committee members
         for auth in self.state.committee:
             msg = Message(
                 message_id=uuid4(),
@@ -280,9 +345,17 @@ class Client(Station):
             )
             self.transport.send_message(msg, auth.address)
 
+        self.logger.info(
+            f"Broadcast confirmation order {order.order_id} with weighted quorum "
+            f"(total_weight={total_weight:.3f})"
+        )
+
+        # Reset state for next transfer
         self.state.pending_transfer = None
         self.state.sequence_number += 1
         self.state.sent_certificates = []
+        self.state.weighted_certificates = []
+        self.state.quorum_reached_time = None
         self.state.balance -= order.amount
 
     def _process_message(self, message: Message) -> None:

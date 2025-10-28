@@ -26,6 +26,7 @@ from meshpay.types import (
     NodeType,
     TransactionStatus,
     TransferOrder,
+    WeightedCertificate,
 )
 from meshpay.messages import (
     ConfirmationRequestMessage,
@@ -34,6 +35,7 @@ from meshpay.messages import (
     TransferRequestMessage,
     TransferResponseMessage,
 )
+from meshpay.committee import Committee
 
 from meshpay.transport.transport import NetworkTransport, TransportKind
 from meshpay.transport.tcp import TCPTransport
@@ -129,11 +131,18 @@ class WiFiAuthority(Station):
             last_sync_time=time.time(),
             authority_signature=f"signed_by_authority_{name}",
             stake=0,
+            transaction_count=0,
+            error_count=0,
+            voting_weight=0.0,
         )
 
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
         self.performance_metrics = MetricsCollector()
+
+        # Initialize committee with base rights (initially just self)
+        # This will be updated when full committee info is available
+        self.committee = Committee([self.state], quorum_threshold=2/3)
 
         self._running = False
         self._message_handler_thread: Optional[threading.Thread] = None
@@ -274,11 +283,16 @@ class WiFiAuthority(Station):
         """Handle transfer order from client."""
         try:
             if not self._validate_transfer_order(transfer_order):
+                # Increment error count for invalid orders
+                self.state.error_count += 1
+                self.update_voting_weight()
+                
                 return TransferResponseMessage(
                     transfer_order=transfer_order,
                     success=False,
                     error_message="Invalid transfer order",
                     authority_signature=self.state.authority_signature,
+                    authority_weight=self.get_current_normalized_weight(),
                 )
 
             self.state.accounts[transfer_order.sender].pending_confirmation = SignedTransferOrder(
@@ -298,22 +312,28 @@ class WiFiAuthority(Station):
                     confirmed_transfers={},
                 )
 
-            self.performance_metrics.record_transaction()
+
 
             return TransferResponseMessage(
                 transfer_order=transfer_order,
                 success=True,
                 authority_signature=self.state.authority_signature,
                 error_message=None,
+                authority_weight=self.get_current_normalized_weight(),
             )
 
         except Exception as e:
             self.logger.error(f"Error handling transfer order: {e}")
+            # Increment error count for exceptions
+            self.state.error_count += 1
+            self.update_voting_weight()
             self.performance_metrics.record_error()
+            
             return TransferResponseMessage(
                 transfer_order=transfer_order,
                 success=False,
                 error_message=f"Internal error: {str(e)}",
+                authority_weight=self.get_current_normalized_weight(),
             )
 
     def handle_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
@@ -359,6 +379,13 @@ class WiFiAuthority(Station):
             recipient.balances[transfer.token_address].meshpay_balance += transfer.amount
             recipient.last_update = time.time()
 
+            # Update performance counters and voting power -----------------------
+            # (vi) and (vii) from the paper description: increment tx_count and
+            # update the current voting power used for weighted quorum.
+            self.state.transaction_count += 1
+            self.update_voting_weight()
+            self.performance_metrics.record_transaction()
+
             self.logger.info(f"Confirmation order {confirmation_order.order_id} processed")
             return True
 
@@ -389,6 +416,36 @@ class WiFiAuthority(Station):
         except Exception as e:
             self.logger.error(f"Error during manual blockchain sync: {e}")
         self.logger.info(f"Manual blockchain sync completed for {len(self.state.accounts)} accounts")
+
+    def update_voting_weight(self) -> None:
+        """Update this authority's voting weight based on net performance.
+        
+        Weight is calculated as max(transaction_count - error_count, 0).
+        The committee will normalize this across all authorities.
+        """
+        net_performance = max(
+            self.state.transaction_count - self.state.error_count,
+            0
+        )
+        self.state.voting_weight = float(net_performance)
+        
+        # Update committee weights if we have committee information
+        if hasattr(self, 'committee'):
+            self.committee.update_authority_performance(
+                self.state.name,
+                self.state.transaction_count,
+                self.state.error_count,
+            )
+
+    def get_current_normalized_weight(self) -> float:
+        """Get the current normalized voting weight for this authority.
+        
+        Returns:
+            Normalized weight (0.0 to 1.0) based on committee-wide performance.
+        """
+        if hasattr(self, 'committee'):
+            return self.committee.get_authority_weight(self.state.name)
+        return 0.0
 
     def _validate_transfer_order(self, transfer_order: TransferOrder) -> bool:
         """Validate a transfer order."""
@@ -426,7 +483,7 @@ class WiFiAuthority(Station):
         return True
 
     def _validate_confirmation_order(self, confirmation_order: ConfirmationOrder) -> bool:
-        """Validate a confirmation order."""
+        """Validate a confirmation order with weighted quorum check."""
         if not self._validate_transfer_order(confirmation_order.transfer_order):
             return False
 
@@ -442,6 +499,26 @@ class WiFiAuthority(Station):
             confirmation_order.transfer_order.order_id
         ):
             return False
+        
+        # Check weighted quorum if weighted_certificates are present
+        if confirmation_order.weighted_certificates:
+            signer_weights = [cert.weight for cert in confirmation_order.weighted_certificates]
+            if not self.committee.has_quorum(signer_weights):
+                self.logger.warning(
+                    f"Confirmation order {confirmation_order.order_id} does not meet weighted quorum: "
+                    f"total_weight={sum(signer_weights):.3f}, required={self.committee.quorum_threshold:.3f}"
+                )
+                return False
+        else:
+            # Fallback to count-based quorum for backward compatibility
+            required_signatures = int(len(self.state.committee_members) * 2 / 3) + 1
+            if len(confirmation_order.authority_signatures) < required_signatures:
+                self.logger.warning(
+                    f"Confirmation order {confirmation_order.order_id} does not meet count-based quorum: "
+                    f"signatures={len(confirmation_order.authority_signatures)}, required={required_signatures}"
+                )
+                return False
+        
         return True
 
     def _message_handler_loop(self) -> None:

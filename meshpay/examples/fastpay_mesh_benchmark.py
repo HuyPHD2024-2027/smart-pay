@@ -42,6 +42,7 @@ class BenchClient(Client):
 
     def __init__(self, *args, metrics: MeshMetrics, **kwargs) -> None:  # type: ignore[no-untyped-def]
         self._metrics = metrics
+        self._transfer_start_times = {}  # Track start time for quorum latency
         super().__init__(*args, **kwargs)
 
     def transfer(self, recipient: str, token_address: str, amount: int) -> bool:  # type: ignore[override]
@@ -49,19 +50,44 @@ class BenchClient(Client):
         # NOTE: we cannot know exact wire bytes here; approximate payload size
         approx_bytes = 180
         self._metrics.record_tx_start(tx_id, bytes_sent=approx_bytes)
+        # Record transfer start time for quorum latency calculation
+        self._transfer_start_times[tx_id] = time.time()
         ok = super().transfer(recipient, token_address, amount)
         if not ok:
             self._metrics.record_tx_failure(tx_id)
+            self._transfer_start_times.pop(tx_id, None)
         # Stash tx_id on pending transfer for correlation in response
         if self.state.pending_transfer is not None:
             self.state.pending_transfer.order_id = tx_id
         return ok
 
-    def handle_transfer_response(self, transfer_response: TransferResponseMessage) -> bool:
+    def handle_transfer_response(
+        self,
+        transfer_response: TransferResponseMessage,
+        authority_name: str = "unknown",
+    ) -> bool:
+        """Handle transfer response and track weighted quorum latency."""
         # Approximate response bytes; could be refined using payload size
         approx_bytes = 220
-        self._metrics.record_tx_success(transfer_response.transfer_order.order_id, bytes_received=approx_bytes)
-        return super().handle_transfer_response(transfer_response)
+        tx_id = transfer_response.transfer_order.order_id
+        self._metrics.record_tx_success(tx_id, bytes_received=approx_bytes)
+        
+        # Call parent to handle weighted certificate tracking
+        result = super().handle_transfer_response(transfer_response, authority_name)
+        
+        # Track quorum latency if weighted quorum just reached
+        if self.state.quorum_reached_time is not None and tx_id in self._transfer_start_times:
+            start_time = self._transfer_start_times[tx_id]
+            quorum_latency_ms = (self.state.quorum_reached_time - start_time) * 1000.0
+            self._metrics.record_quorum_latency(tx_id, quorum_latency_ms)
+            # Clean up
+            del self._transfer_start_times[tx_id]
+        
+        # Record authority weights periodically
+        if transfer_response.authority_weight > 0:
+            self._metrics.record_authority_weight(authority_name, transfer_response.authority_weight)
+        
+        return result
 
 
 def build_mesh(
@@ -141,11 +167,32 @@ def run_load(
     """Generate transfer load from each client for a fixed duration."""
     stop_at = time.time() + duration_s
 
+    stop_event = threading.Event()
+
+    def monitor_quorum(me: BenchClient) -> None:
+        """Periodically check weighted quorum and broadcast confirmations."""
+        quorum_threshold = 2.0 / 3.0
+        while not stop_event.is_set():
+            pending = me.state.pending_transfer
+            if pending is None:
+                time.sleep(0.05)
+                continue
+
+            total_weight = sum(cert.weight for cert in me.state.weighted_certificates)
+            if total_weight >= quorum_threshold:
+                me.broadcast_confirmation()
+                continue
+
+            time.sleep(0.05)
+
     def worker(me: BenchClient) -> None:
         interval = 1.0 / max(rate_per_client, 1e-9)
         idx = int(me.name.replace("user", ""))
         rng = random.Random(idx * 1337)
         while time.time() < stop_at:
+            if me.state.pending_transfer is not None:
+                time.sleep(0.05)
+                continue
             # Choose a random recipient distinct from the sender
             candidates = [c for c in clients if c.name != me.name]
             if not candidates:
@@ -154,11 +201,19 @@ def run_load(
             me.transfer(recipient, token_address, amount)
             time.sleep(interval)
 
+    monitor_threads: List[threading.Thread] = [
+        threading.Thread(target=monitor_quorum, args=(c,), daemon=True) for c in clients
+    ]
     threads: List[threading.Thread] = [threading.Thread(target=worker, args=(c,), daemon=True) for c in clients]
+    for monitor in monitor_threads:
+        monitor.start()
     for t in threads:
         t.start()
     for t in threads:
         t.join(timeout=duration_s + 5)
+    stop_event.set()
+    for monitor in monitor_threads:
+        monitor.join(timeout=5)
 
 
 def write_outputs(

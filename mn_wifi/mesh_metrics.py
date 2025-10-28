@@ -70,6 +70,10 @@ class MeshMetrics:
         self._failed = 0
         self._bytes_sent = 0
         self._bytes_received = 0
+        
+        # Weighted voting metrics
+        self._quorum_latencies_ms: List[float] = []
+        self._authority_weights: Dict[str, List[float]] = {}  # authority_name -> list of weights over time
 
     # ----------------------------------------------------------------------------------
     # Recording helpers
@@ -125,6 +129,89 @@ class MeshMetrics:
             self._bytes_sent += max(0, int(sent))
             self._bytes_received += max(0, int(received))
 
+    def record_quorum_latency(self, tx_id: UUID, latency_ms: float) -> None:
+        """Record time to reach 2/3 weighted quorum for a transaction.
+        
+        Args:
+            tx_id: Transaction identifier.
+            latency_ms: Latency in milliseconds from transaction start to quorum.
+        """
+        with self._lock:
+            self._quorum_latencies_ms.append(float(latency_ms))
+
+    def record_authority_weight(self, authority_name: str, weight: float) -> None:
+        """Record an authority's voting weight at a point in time.
+        
+        Args:
+            authority_name: Name of the authority.
+            weight: Normalized voting weight (0.0 to 1.0).
+        """
+        with self._lock:
+            if authority_name not in self._authority_weights:
+                self._authority_weights[authority_name] = []
+            self._authority_weights[authority_name].append(float(weight))
+
+    def get_average_quorum_latency(self) -> float:
+        """Return average latency to reach weighted quorum.
+        
+        Returns:
+            Average quorum latency in milliseconds, or 0.0 if no samples.
+        """
+        with self._lock:
+            if not self._quorum_latencies_ms:
+                return 0.0
+            return mean(self._quorum_latencies_ms)
+
+    def get_quorum_latency_stats(self) -> SummaryStats:
+        """Get detailed statistics for quorum latency.
+        
+        Returns:
+            SummaryStats object with quorum latency percentiles.
+        """
+        with self._lock:
+            samples = list(self._quorum_latencies_ms)
+        if not samples:
+            return SummaryStats(count=0, min_ms=0.0, avg_ms=0.0, p50_ms=0.0, p95_ms=0.0, p99_ms=0.0, max_ms=0.0)
+        samples.sort()
+        return SummaryStats(
+            count=len(samples),
+            min_ms=samples[0],
+            avg_ms=mean(samples),
+            p50_ms=self._percentile(samples, 50),
+            p95_ms=self._percentile(samples, 95),
+            p99_ms=self._percentile(samples, 99),
+            max_ms=samples[-1],
+        )
+
+    def get_authority_weights_summary(self) -> Dict[str, Dict[str, float]]:
+        """Get summary statistics for each authority's voting weights.
+        
+        Returns:
+            Dictionary mapping authority name to weight statistics (avg, min, max).
+        """
+        with self._lock:
+            weights_copy = {k: list(v) for k, v in self._authority_weights.items()}
+        
+        summary: Dict[str, Dict[str, float]] = {}
+        for auth_name, weights in weights_copy.items():
+            if weights:
+                summary[auth_name] = {
+                    "avg_weight": mean(weights),
+                    "min_weight": min(weights),
+                    "max_weight": max(weights),
+                    "final_weight": weights[-1],
+                    "samples": float(len(weights)),
+                }
+            else:
+                summary[auth_name] = {
+                    "avg_weight": 0.0,
+                    "min_weight": 0.0,
+                    "max_weight": 0.0,
+                    "final_weight": 0.0,
+                    "samples": 0.0,
+                }
+        return summary
+
     # ----------------------------------------------------------------------------------
     # Computation and export
     # ----------------------------------------------------------------------------------
@@ -173,17 +260,22 @@ class MeshMetrics:
         """
         duration_s = explicit_duration_s if explicit_duration_s is not None else self.elapsed_s()
         latency = self._latency_stats()
+        quorum_latency = self.get_quorum_latency_stats()
+        authority_weights = self.get_authority_weights_summary()
+        
         with self._lock:
             started = self._started
             succeeded = self._succeeded
             failed = self._failed
             bytes_sent = self._bytes_sent
             bytes_received = self._bytes_received
+            
         throughput_tps = (succeeded / duration_s) if duration_s > 0 else 0.0
         tx_bps = (bytes_sent * 8.0 / duration_s) if duration_s > 0 else 0.0
         rx_bps = (bytes_received * 8.0 / duration_s) if duration_s > 0 else 0.0
         success_rate = (succeeded / started) * 100.0 if started > 0 else 0.0
-        return {
+        
+        result: Dict[str, float] = {
             "run_label": self._run_label,
             "duration_s": duration_s,
             "transactions_started": float(started),
@@ -202,7 +294,15 @@ class MeshMetrics:
             "latency_samples": float(latency.count),
             "bytes_sent": float(bytes_sent),
             "bytes_received": float(bytes_received),
+            # Weighted voting metrics
+            "average_quorum_latency_ms": quorum_latency.avg_ms,
+            "p50_quorum_latency_ms": quorum_latency.p50_ms,
+            "p95_quorum_latency_ms": quorum_latency.p95_ms,
+            "p99_quorum_latency_ms": quorum_latency.p99_ms,
+            "quorum_latency_samples": float(quorum_latency.count),
+            "authority_weights": authority_weights,  # type: ignore[dict-item]
         }
+        return result
 
     def to_json(self, *, explicit_duration_s: Optional[float] = None) -> str:
         """Return a JSON string with the current snapshot."""
