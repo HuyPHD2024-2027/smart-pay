@@ -106,7 +106,7 @@ def create_mesh_network_with_internet(
             committee_members=committee - {name},
             ip=f"10.0.0.{10 + i}/8",
             port=8000 + i,
-            # position=[20 + (i * 25), 40, 0],
+            position=[20 + (i * 25), 40, 0],
             range=58,
             txpower=20,
         )
@@ -121,7 +121,7 @@ def create_mesh_network_with_internet(
             cls=Client,  
             ip=f"10.0.0.{20 + i}/8",
             port=9000 + i,
-            # position=[30 + (i * 20), 20, 0],
+            position=[30 + (i * 20), 20, 0],
             range=58,
             txpower=15,
         )
