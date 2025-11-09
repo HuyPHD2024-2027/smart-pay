@@ -11,7 +11,7 @@ import threading
 import time
 from queue import Queue
 from typing import Any, Dict, List, Optional, Set
-from uuid import uuid4
+from uuid import UUID, uuid4
 from datetime import datetime
 
 from mn_wifi.node import Station
@@ -29,12 +29,14 @@ from meshpay.types import (
 )
 from meshpay.messages import (
     ConfirmationRequestMessage,
+    DagBlockMessage,
+    DagVoteMessage,
     Message,
     MessageType,
     TransferRequestMessage,
     TransferResponseMessage,
 )
-
+from meshpay.dag import DagBlock, DagLedger, QuorumCertificate
 from meshpay.transport.transport import NetworkTransport, TransportKind
 from meshpay.transport.tcp import TCPTransport
 from meshpay.transport.udp import UDPTransport
@@ -130,6 +132,10 @@ class WiFiAuthority(Station):
             authority_signature=f"signed_by_authority_{name}",
             stake=0,
         )
+
+        self.committee_size = len(self.state.committee_members) + 1
+        self.quorum_size = max(1, (2 * self.committee_size) // 3 + 1)
+        self.dag_ledger = DagLedger(quorum_size=self.quorum_size)
 
         self.p2p_connections: Dict[str, Address] = {}
         self.message_queue: Queue[Message] = Queue()
@@ -288,6 +294,8 @@ class WiFiAuthority(Station):
                 timestamp=time.time(),
             )
 
+            self._ingest_transfer_order_into_dag(transfer_order)
+
             if transfer_order.recipient not in self.state.accounts:
                 self.state.accounts[transfer_order.recipient] = AccountOffchainState(
                     address=transfer_order.recipient,
@@ -390,6 +398,137 @@ class WiFiAuthority(Station):
             self.logger.error(f"Error during manual blockchain sync: {e}")
         self.logger.info(f"Manual blockchain sync completed for {len(self.state.accounts)} accounts")
 
+    def register_authority_peer(self, peer_name: str, address: Address) -> None:
+        """Register another authority so DAG gossip can be exchanged."""
+        self.p2p_connections[peer_name] = address
+        self.logger.debug("Registered authority peer %s at %s", peer_name, address)
+
+    def _build_dag_payload(self, transfer_order: TransferOrder) -> Dict[str, object]:
+        """Construct a serialisable payload for a transfer order."""
+        return {
+            "kind": "transfer_order",
+            "order": {
+                "order_id": str(transfer_order.order_id),
+                "sender": transfer_order.sender,
+                "recipient": transfer_order.recipient,
+                "token_address": transfer_order.token_address,
+                "amount": transfer_order.amount,
+                "sequence_number": transfer_order.sequence_number,
+                "timestamp": transfer_order.timestamp,
+                "signature": transfer_order.signature,
+            },
+        }
+
+    def _ingest_transfer_order_into_dag(self, transfer_order: TransferOrder) -> None:
+        """Insert a transfer order into the DAG and gossip it to peers."""
+        try:
+            payload = self._build_dag_payload(transfer_order)
+            block = self.dag_ledger.create_block(author=self.name, payload=payload)
+            self.dag_ledger.add_block(block)
+            self.dag_ledger.record_vote(block.block_id, self.name, signature=self.state.authority_signature or "")
+            self._broadcast_dag_block(block)
+            self._finalize_ready_blocks()
+        except Exception as exc:
+            self.logger.error(f"Unable to ingest transfer into DAG: {exc}")
+
+    def _broadcast_dag_block(self, block: DagBlock, certificate: Optional[QuorumCertificate] = None) -> None:
+        """Broadcast a DAG block announcement to known authority peers."""
+        if not self.p2p_connections:
+            self.logger.debug("No authority peers registered; skipping DAG block broadcast")
+            return
+        for peer in self.p2p_connections.values():
+            try:
+                message = Message(
+                    message_id=uuid4(),
+                    message_type=MessageType.DAG_BLOCK,
+                    sender=self.address,
+                    recipient=peer,
+                    timestamp=time.time(),
+                    payload=DagBlockMessage(block=block, certificate=certificate).to_payload(),
+                )
+                self.transport.send_message(message, peer)
+            except Exception as exc:
+                self.logger.warning("Failed to broadcast DAG block %s to %s: %s", block.block_id, peer.node_id, exc)
+
+    def _broadcast_dag_vote(self, block_id: UUID) -> None:
+        """Broadcast a DAG vote for the supplied block."""
+        if not self.p2p_connections:
+            return
+        vote_payload = DagVoteMessage(
+            block_id=block_id,
+            voter=self.name,
+            signature=self.state.authority_signature,
+        ).to_payload()
+        for peer in self.p2p_connections.values():
+            try:
+                message = Message(
+                    message_id=uuid4(),
+                    message_type=MessageType.DAG_VOTE,
+                    sender=self.address,
+                    recipient=peer,
+                    timestamp=time.time(),
+                    payload=vote_payload,
+                )
+                self.transport.send_message(message, peer)
+            except Exception as exc:
+                self.logger.warning("Failed to broadcast DAG vote for %s to %s: %s", block_id, peer.node_id, exc)
+
+    def _handle_dag_block_message(self, dag_message: DagBlockMessage, sender: Address) -> None:
+        """Process an incoming DAG block announcement."""
+        try:
+            existing_block = self.dag_ledger.get_block(dag_message.block.block_id)
+            if existing_block is None:
+                self.dag_ledger.add_block(dag_message.block)
+                self._broadcast_dag_block(dag_message.block, dag_message.certificate)
+            if dag_message.certificate is not None:
+                self.dag_ledger.record_certificate(dag_message.certificate)
+            self.dag_ledger.record_vote(dag_message.block.block_id, sender.node_id, signature="")
+            self.dag_ledger.record_vote(
+                dag_message.block.block_id,
+                self.name,
+                signature=self.state.authority_signature or "",
+            )
+            self._broadcast_dag_vote(dag_message.block.block_id)
+            self._finalize_ready_blocks()
+        except KeyError:
+            self.logger.warning("Received DAG block with unknown parents from %s", sender.node_id)
+        except Exception as exc:
+            self.logger.error("Error handling DAG block from %s: %s", sender.node_id, exc)
+
+    def _handle_dag_vote_message(self, vote_message: DagVoteMessage) -> None:
+        """Process an incoming DAG vote."""
+        try:
+            self.dag_ledger.record_vote(
+                vote_message.block_id,
+                vote_message.voter,
+                signature=vote_message.signature or "",
+            )
+            self._finalize_ready_blocks()
+        except KeyError:
+            self.logger.debug("Ignoring vote for unknown block %s from %s", vote_message.block_id, vote_message.voter)
+        except Exception as exc:
+            self.logger.error("Error handling DAG vote for %s: %s", vote_message.block_id, exc)
+
+    def _finalize_ready_blocks(self) -> None:
+        """Commit DAG blocks that have gathered quorum certificates."""
+        committed_blocks = self.dag_ledger.commit_ready_blocks()
+        for block in committed_blocks:
+            self._apply_committed_block(block)
+
+    def _apply_committed_block(self, block: DagBlock) -> None:
+        """Apply side effects for a committed block."""
+        payload_kind = block.payload.get("kind")
+        if payload_kind == "transfer_order":
+            order_payload = block.payload.get("order", {})
+            order_id = order_payload.get("order_id")
+            sequence_number = order_payload.get("sequence_number")
+            self.logger.info(
+                "DAG committed transfer order %s at sequence %s (round %s)",
+                order_id,
+                sequence_number,
+                block.round,
+            )
+
     def _validate_transfer_order(self, transfer_order: TransferOrder) -> bool:
         """Validate a transfer order."""
         if transfer_order.amount <= 0:
@@ -474,6 +613,15 @@ class WiFiAuthority(Station):
             elif message.message_type == MessageType.CONFIRMATION_REQUEST:
                 request = ConfirmationRequestMessage.from_payload(message.payload)
                 self.handle_confirmation_order(request.confirmation_order)
+
+            elif message.message_type == MessageType.DAG_BLOCK:
+                dag_message = DagBlockMessage.from_payload(message.payload)
+                if message.sender is not None:
+                    self._handle_dag_block_message(dag_message, message.sender)
+
+            elif message.message_type == MessageType.DAG_VOTE:
+                vote_message = DagVoteMessage.from_payload(message.payload)
+                self._handle_dag_vote_message(vote_message)
 
         except Exception as e:
             self.logger.error(f"Error processing message: {e}")

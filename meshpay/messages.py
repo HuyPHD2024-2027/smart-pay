@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
+from meshpay.dag.block import DagBlock, QuorumCertificate
 from meshpay.types import Address, ConfirmationOrder, TransferOrder
 
 
@@ -24,6 +25,8 @@ class MessageType(Enum):
     PEER_DISCOVERY = "peer_discovery"
     HEARTBEAT = "heartbeat"
     ERROR = "error"
+    DAG_BLOCK = "dag_block"
+    DAG_VOTE = "dag_vote"
 
 
 @dataclass
@@ -197,6 +200,58 @@ class PeerDiscoveryMessage:
             node_info=node_info,
             service_capabilities=payload['service_capabilities'],
             network_metrics=payload.get('network_metrics')
+        )
+
+
+@dataclass
+class DagBlockMessage:
+    """Message wrapper that transports DAG blocks and optional certificates."""
+
+    block: DagBlock
+    certificate: Optional[QuorumCertificate] = None
+
+    def to_payload(self) -> Dict[str, Any]:
+        """Convert the DAG block message into a serialisable payload."""
+        payload: Dict[str, Any] = {"block": self.block.to_payload()}
+        if self.certificate is not None:
+            payload["certificate"] = self.certificate.to_payload()
+        return payload
+
+    @staticmethod
+    def from_payload(payload: Dict[str, Any]) -> "DagBlockMessage":
+        """Recreate a message from its payload."""
+        block = DagBlock.from_payload(payload["block"])  # type: ignore[arg-type]
+        certificate_payload = payload.get("certificate")
+        certificate = (
+            QuorumCertificate.from_payload(certificate_payload) if certificate_payload is not None else None
+        )
+        return DagBlockMessage(block=block, certificate=certificate)
+
+
+@dataclass
+class DagVoteMessage:
+    """Message that carries a vote for a DAG block."""
+
+    block_id: UUID
+    voter: str
+    signature: Optional[str] = None
+
+    def to_payload(self) -> Dict[str, Any]:
+        """Convert the vote into a serialisable payload."""
+        return {
+            "block_id": str(self.block_id),
+            "voter": self.voter,
+            "signature": self.signature,
+        }
+
+    @staticmethod
+    def from_payload(payload: Dict[str, Any]) -> "DagVoteMessage":
+        """Recreate a vote message from its payload."""
+        signature = payload.get("signature")
+        return DagVoteMessage(
+            block_id=UUID(str(payload["block_id"])),
+            voter=str(payload["voter"]),
+            signature=str(signature) if signature is not None else None,
         )
 
 
