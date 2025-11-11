@@ -56,16 +56,19 @@ class Client(Station):
         ip: str = "10.0.0.100/8",
         port: int = 9000,
         position: Optional[List[float]] = None,
-        **station_params,
+        **params,
     ) -> None:
         """Create a new client station."""
 
-        defaults = {
+        default_params = {
             "ip": ip,
+            "position": position or [0, 0, 0],
             "range": 100,
+            "txpower": 20,
+            "antennaGain": 5,
         }
-        defaults.update(station_params)
-        super().__init__(name, **defaults)  # type: ignore[arg-type]
+        default_params.update(params)
+        super().__init__(name, **default_params)
 
         self.name = name
         self.address = Address(
