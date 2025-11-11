@@ -1,0 +1,466 @@
+================================================================================
+                    MeshPay Architecture - ASCII Diagrams
+================================================================================
+
+1. SYSTEM ARCHITECTURE OVERVIEW
+================================================================================
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                    MeshPay System Architecture                       │
+    └─────────────────────────────────────────────────────────────────────┘
+    
+    ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+    │   Client 1   │────────▶│  Authority 1 │────────▶│  Authority 2 │
+    └──────────────┘         └──────────────┘         └──────────────┘
+           │                        │                        │
+           │                        │                        │
+           │         ┌──────────────┴──────────────┐        │
+           │         │                             │        │
+           │    ┌────▼────┐                  ┌────▼────┐   │
+           └───▶│  Mesh   │                  │ Gateway │◀───┘
+                │ Network │                  │  Node   │
+                └────┬────┘                  └────┬────┘
+                     │                             │
+                     │                             │
+                ┌────▼────┐                  ┌────▼────┐
+                │ Client 2│                  │Internet │
+                └─────────┘                  │Primary  │
+                                             │ Ledger  │
+                                             └─────────┘
+
+
+2. MESH NETWORK TOPOLOGY
+================================================================================
+
+    Mesh Network: "fastpay-mesh"
+    
+         [Authority 1] ──────── [Authority 2]
+              │                      │
+              │                      │
+         [Client 1]              [Client 2]
+              │                      │
+              │                      │
+         [Authority 3] ──────── [Authority 4]
+              │                      │
+              │                      │
+         [Client 3]              [Gateway] ─── Internet
+              │                      │
+              │                      │
+         [Authority 5] ──────── [Authority 6]
+    
+    Key:
+    - Solid lines: Direct mesh links
+    - Dashed lines: Multi-hop paths
+    - All nodes participate in mesh routing
+
+
+3. TRANSFER ORDER FLOW
+================================================================================
+
+    Phase 1: Transfer Initiation
+    ────────────────────────────
+    
+    Client                    Mesh Network              Authorities
+      │                            │                         │
+      │ 1. Create TransferOrder    │                         │
+      │    (sender, recipient,     │                         │
+      │     amount, seq_num)       │                         │
+      │                            │                         │
+      │ 2. Sign TransferOrder      │                         │
+      │    (Ed25519 signature)     │                         │
+      │                            │                         │
+      │ 3. Broadcast ──────────────▶│                         │
+      │                            │                         │
+      │                            │ 4. Route ──────────────▶│
+      │                            │    (multi-hop)          │
+      │                            │                         │
+      │                            │                         │ 5. Validate
+      │                            │                         │    (balance,
+      │                            │                         │     sequence,
+      │                            │                         │     signature)
+      │                            │                         │
+      │                            │                         │ 6. Sign
+      │                            │                         │    (authority
+      │                            │                         │     signature)
+      │                            │                         │
+      │                            │◀──── 7. Certificate ───│
+      │                            │                         │
+      │◀──── 8. Collect ───────────│                         │
+      │    Signatures              │                         │
+      │                            │                         │
+      │ 9. Check Quorum (≥2/3)     │                         │
+      │                            │                         │
+      │ 10. Create Confirmation    │                         │
+      │                            │                         │
+      │ 11. Broadcast ─────────────▶│                         │
+      │                            │                         │
+      │                            │ 12. Forward ───────────▶│
+      │                            │                         │
+      │                            │                         │ 13. Update
+      │                            │                         │    State
+      │                            │                         │
+      │◀──── 14. Finalized ────────│                         │
+
+
+4. WITHDRAWAL PROTOCOL FLOW
+================================================================================
+
+    Phase 1: Withdrawal Request
+    ────────────────────────────
+    
+    Client          Authorities          Gateway          Primary Ledger
+      │                 │                   │                  │
+      │ 1. Create       │                   │                  │
+      │    Withdrawal   │                   │                  │
+      │    Order        │                   │                  │
+      │                 │                   │                  │
+      │ 2. Sign Order   │                   │                  │
+      │                 │                   │                  │
+      │ 3. Broadcast ───▶                   │                  │
+      │                 │                   │                  │
+      │                 │ 4. Validate       │                  │
+      │                 │    (balance,      │                  │
+      │                 │     sequence,     │                  │
+      │                 │     partition)    │                  │
+      │                 │                   │                  │
+      │                 │ 5. Lock Balance  │                  │
+      │                 │                   │                  │
+      │                 │ 6. Sign Order    │                  │
+      │                 │                   │                  │
+      │◀─── 7. Certificate ──               │                  │
+      │                 │                   │                  │
+      │ 8. Collect     │                   │                  │
+      │    Quorum      │                   │                  │
+      │    (≥2/3)      │                   │                  │
+      │                 │                   │                  │
+      │ 9. Create      │                   │                  │
+      │    Certificate │                   │                  │
+      │                 │                   │                  │
+      │ 10. Submit ─────────────────────────▶                  │
+      │                 │                   │                  │
+      │                 │                   │ 11. Validate     │
+      │                 │                   │    Certificate   │
+      │                 │                   │                  │
+      │                 │                   │ 12. Submit ──────▶
+      │                 │                   │    Settlement    │
+      │                 │                   │                  │
+      │                 │                   │                  │ 13. Execute
+      │                 │                   │                  │    Settlement
+      │                 │                   │                  │
+      │                 │                   │◀─── 14. Confirm ──│
+      │                 │                   │                  │
+      │                 │                   │ 15. Update Mesh  │
+      │                 │                   │    State        │
+      │                 │                   │                  │
+      │                 │◀─── 16. Broadcast ─                  │
+      │                 │    State Update   │                  │
+      │                 │                   │                  │
+      │                 │ 17. Debit Balance │                  │
+      │                 │                   │                  │
+      │◀─── 18. Finalized ───────────────────                  │
+
+
+5. DOUBLE-SPEND PREVENTION MECHANISM
+================================================================================
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │              Double-Spend Prevention Flow                        │
+    └─────────────────────────────────────────────────────────────────┘
+    
+    Attempt 1: Valid Withdrawal
+    ───────────────────────────
+    
+    Client ──▶ Authority: WithdrawalOrder(seq=10, amount=100)
+    
+    Authority Checks:
+      ✓ Sequence 10 > Last Sequence (9)  → Valid
+      ✓ Balance >= 100                  → Valid
+      ✓ No pending seq 10               → Valid
+    
+    Authority Actions:
+      → Lock Balance: 100
+      → Update Last Sequence: 10
+      → Sign Certificate
+    
+    ──────────────────────────────────────────────────────────────────
+    
+    Attempt 2: Double-Spend Detection
+    ──────────────────────────────────
+    
+    Client ──▶ Authority: WithdrawalOrder(seq=10, amount=50)
+    
+    Authority Checks:
+      ✗ Sequence 10 == Last Sequence (10)  → INVALID
+      ✗ Sequence 10 already processed     → DOUBLE-SPEND DETECTED
+    
+    Authority Actions:
+      → Reject Withdrawal
+      → Log Security Event
+      → Alert Other Authorities
+    
+    ──────────────────────────────────────────────────────────────────
+    
+    Attempt 3: Sequence Gap Detection
+    ──────────────────────────────────
+    
+    Client ──▶ Authority: WithdrawalOrder(seq=12, amount=50)
+    
+    Authority Checks:
+      ✗ Sequence 12 > Last Sequence (10) + 1  → GAP DETECTED
+      ✗ Missing Sequence 11                     → INVALID
+    
+    Authority Actions:
+      → Reject Withdrawal
+      → Request Sync for Missing Sequences
+
+
+6. NETWORK PARTITION SCENARIOS
+================================================================================
+
+    Scenario 1: Majority Partition
+    ───────────────────────────────
+    
+    Partition A (Majority - 75%):        Partition B (Minority - 25%):
+    
+    ┌──────────┐  ┌──────────┐         ┌──────────┐
+    │ Auth 1   │──│ Auth 2   │         │ Auth 4   │
+    └──────────┘  └──────────┘         └──────────┘
+         │              │
+         │              │
+    ┌──────────┐  ┌──────────┐
+    │ Auth 3   │──│ Client 1 │
+    └──────────┘  └──────────┘
+    
+    Status:
+      Partition A: ✓ Can process withdrawals (has quorum ≥2/3)
+      Partition B: ✗ Cannot process withdrawals (no quorum)
+    
+    Action:
+      Partition A: Continue normal operation
+      Partition B: Block withdrawals, wait for merge
+    
+    ──────────────────────────────────────────────────────────────────
+    
+    Scenario 2: Split Partition (50/50)
+    ────────────────────────────────────
+    
+    Partition A (50%):                  Partition B (50%):
+    
+    ┌──────────┐                        ┌──────────┐
+    │ Auth 1   │                        │ Auth 3   │
+    └──────────┘                        └──────────┘
+         │                                    │
+         │                                    │
+    ┌──────────┐                        ┌──────────┐
+    │ Auth 2   │                        │ Auth 4   │
+    └──────────┘                        └──────────┘
+    
+    Status:
+      Partition A: ✗ No quorum (need ≥67%)
+      Partition B: ✗ No quorum (need ≥67%)
+    
+    Action:
+      Both Partitions: Block withdrawals until merge
+    
+    ──────────────────────────────────────────────────────────────────
+    
+    Scenario 3: Partition Resolution
+    ─────────────────────────────────
+    
+    Step 1: Partition Detected
+      ──▶ Heartbeat timeout
+      ──▶ Quorum check fails
+      ──▶ Withdrawals blocked
+    
+    Step 2: Partition Resolves
+      ──▶ Heartbeat restored
+      ──▶ Quorum check passes
+      ──▶ State merge initiated
+    
+    Step 3: State Merging
+      ──▶ Compare account states
+      ──▶ Resolve conflicts (timestamps, sequences)
+      ──▶ Unlock balances
+      ──▶ Resume withdrawals
+
+
+7. CONSENSUS MECHANISM (BFT)
+================================================================================
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    BFT Consensus Process                        │
+    └─────────────────────────────────────────────────────────────────┘
+    
+    Committee: 4 Authorities
+    Quorum: ≥3/4 (≥67%)
+    Fault Tolerance: 1 Byzantine node
+    
+    Process:
+    
+    1. Client Broadcast
+       ┌─────────┐
+       │ Client  │───▶ Broadcast TransferOrder to all authorities
+       └─────────┘
+    
+    2. Authority Validation (Parallel)
+       ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+       │ Auth 1   │  │ Auth 2   │  │ Auth 3   │  │ Auth 4   │
+       │ Validate │  │ Validate │  │ Validate │  │ Validate │
+       └──────────┘  └──────────┘  └──────────┘  └──────────┘
+    
+    3. Gossip Phase (Cross-Validation)
+       Auth 1 ──▶ Auth 2: Gossip Order
+       Auth 1 ──▶ Auth 3: Gossip Order
+       Auth 1 ──▶ Auth 4: Gossip Order
+       Auth 2 ──▶ Auth 3: Gossip Order
+       Auth 2 ──▶ Auth 4: Gossip Order
+       Auth 3 ──▶ Auth 4: Gossip Order
+    
+    4. Double-Spend Check
+       All authorities check for conflicts
+    
+    5. Signing Phase
+       ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+       │ Auth 1   │  │ Auth 2   │  │ Auth 3   │  │ Auth 4   │
+       │   Sign   │  │   Sign   │  │   Sign   │  │   Sign   │
+       └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+            │             │             │             │
+            └─────────────┴─────────────┴─────────────┘
+                           │
+                           ▼
+                    ┌──────────┐
+                    │  Client  │ Collects ≥3 signatures
+                    └──────────┘
+    
+    6. Quorum Check
+       Client: 3/4 signatures collected → Quorum achieved ✓
+    
+    7. Confirmation
+       Client creates ConfirmationOrder with quorum certificate
+
+
+8. MESSAGE ROUTING IN MESH NETWORK
+================================================================================
+
+    Multi-Hop Routing Example:
+    
+    Client ──▶ Relay 1 ──▶ Authority 1 ──▶ Authority 2 ──▶ Authority 3 ──▶ Recipient
+      │          │            │              │              │                │
+      │          │            │              │              │                │
+      └──────────┴────────────┴──────────────┴──────────────┴────────────────┘
+    
+    Routing Path: 6 hops
+    
+    Routing Algorithm: HWMP (Hybrid Wireless Mesh Protocol)
+      - Proactive: Maintains routing table
+      - Reactive: Discovers paths on-demand
+      - Load balancing: Multiple paths to same destination
+
+
+9. SECURITY LAYERS
+================================================================================
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    Security Architecture                        │
+    └─────────────────────────────────────────────────────────────────┘
+    
+    Layer 1: Network Security (IEEE 802.11s)
+      └─▶ WPA3-SAE Authentication
+      └─▶ AES-128-CCM Encryption
+    
+    Layer 2: Application Security
+      └─▶ Ed25519 Signatures (Client & Authority)
+      └─▶ Message Authentication Codes (MAC)
+    
+    Layer 3: Consensus Security
+      └─▶ Byzantine Fault Tolerance (BFT)
+      └─▶ Quorum Verification (≥2/3)
+    
+    Layer 4: State Security
+      └─▶ Sequence Number Tracking
+      └─▶ Balance Locking
+      └─▶ Double-Spend Detection
+
+
+10. WITHDRAWAL STATE MACHINE
+================================================================================
+
+    [Start]
+      │
+      ▼
+    Request Created
+      │
+      ▼
+    ┌─────────────────┐
+    │   Validating     │
+    └────────┬────────┘
+             │
+      ┌──────┴──────┐
+      │             │
+      ▼             ▼
+    Valid        Invalid
+      │             │
+      │             ▼
+      │         Rejected ──▶ [End]
+      │
+      ▼
+    Balance Checked
+      │
+      ▼
+    Sequence Checked
+      │
+      ▼
+    Partition Checked
+      │
+      ▼
+    ┌─────────────────┐
+    │ Quorum Checking │
+    └────────┬────────┘
+             │
+      ┌──────┴──────┐
+      │             │
+      ▼             ▼
+    Quorum      No Quorum
+    Achieved       │
+      │             │
+      │             ▼
+      │         Retrying ──▶ Validating
+      │
+      ▼
+    Signing
+      │
+      ▼
+    Balance Locked
+      │
+      ▼
+    Certificate Created
+      │
+      ▼
+    Gateway Submitting
+      │
+      ▼
+    Primary Validating
+      │
+      ▼
+    ┌─────────────────┐
+    │   Executing     │
+    └────────┬────────┘
+             │
+      ┌──────┴──────┐
+      │             │
+      ▼             ▼
+    Confirmed    Rejected
+      │             │
+      │             ▼
+      │         Unlocked ──▶ [End]
+      │
+      ▼
+    Balance Debited
+      │
+      ▼
+    Finalized ──▶ [End]
+
+
+================================================================================
+                            End of ASCII Diagrams
+================================================================================
