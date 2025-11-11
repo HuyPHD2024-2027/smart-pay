@@ -28,8 +28,9 @@ echo ""
 echo "=== Running No-Fault Scenarios ==="
 echo ""
 
-# 5 authorities, no faults
-for tps in 500 1000 1500 2000 2500 3000 3500 4000 4500 5000; do
+# 5 authorities, no faults (limited to 2000 TPS max)
+# Expected: normal 0.52-2.0s, weighted 0.5-1.3s
+for tps in 500 1000 1500 2000; do
     echo "Running: 5 authorities, 0 faults, ${tps} TPS..."
     python3 -m meshpay.examples.meshpay_benchmark_runner \
         --authorities 5 --faulty 0 --tps $tps \
@@ -37,8 +38,9 @@ for tps in 500 1000 1500 2000 2500 3000 3500 4000 4500 5000; do
         --output "${OUTPUT_DIR}/5auth_0fault_${tps}tps.csv" || echo "  Failed!"
 done
 
-# 10 authorities, no faults
-for tps in 500 1000 1500 2000 2500 3000 3500 4000 4500 5000; do
+# 10 authorities, no faults (limited to 3500 TPS max)
+# Expected: normal 0.42-1.8s, weighted 0.4-1.0s
+for tps in 500 1000 1500 2000 2500 3000 3500; do
     echo "Running: 10 authorities, 0 faults, ${tps} TPS..."
     python3 -m meshpay.examples.meshpay_benchmark_runner \
         --authorities 10 --faulty 0 --tps $tps \
@@ -59,8 +61,9 @@ echo ""
 echo "=== Running Fault Scenarios ==="
 echo ""
 
-# 5 authorities, 1 faulty
-for tps in 50 100 150 200 250 300 350 400; do
+# 5 authorities, 1 faulty (limited to 150 TPS max)
+# Expected: weighted 2.0-6.0s at 150 TPS then infinity
+for tps in 50 100 150; do
     echo "Running: 5 authorities, 1 faulty, ${tps} TPS..."
     python3 -m meshpay.examples.meshpay_benchmark_runner \
         --authorities 5 --faulty 1 --tps $tps \
@@ -68,8 +71,9 @@ for tps in 50 100 150 200 250 300 350 400; do
         --output "${OUTPUT_DIR}/5auth_1fault_${tps}tps.csv" || echo "  Failed!"
 done
 
-# 10 authorities, 3 faulty
-for tps in 50 100 150 200 250 300 350 400; do
+# 10 authorities, 3 faulty (limited to 250 TPS max)
+# Expected: weighted 1.6-5.0s at 250 TPS then infinity
+for tps in 50 100 150 200 250; do
     echo "Running: 10 authorities, 3 faulty, ${tps} TPS..."
     python3 -m meshpay.examples.meshpay_benchmark_runner \
         --authorities 10 --faulty 3 --tps $tps \
@@ -90,9 +94,9 @@ echo ""
 echo "=== Running Range Variation Scenarios ==="
 echo ""
 
-# 10 authorities at different ranges
+# 10 authorities at different ranges (limited to 3500 TPS max)
 for range in 5 10 20; do
-    for tps in 500 1000 1500 2000 2500 3000 3500 4000 4500 5000; do
+    for tps in 500 1000 1500 2000 2500 3000 3500; do
         echo "Running: 10 authorities, 0 faults, ${range}m range, ${tps} TPS..."
         python3 -m meshpay.examples.meshpay_benchmark_runner \
             --authorities 10 --faulty 0 --tps $tps \
