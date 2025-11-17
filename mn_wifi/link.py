@@ -297,19 +297,30 @@ class IntfWireless(Intf):
     def setMode(self, mode):
         self.mode = mode
 
-    def getTxPowerGivenRange(self):
-        txpower = GetPowerGivenRange(self).txpower
-        self.setTxPower(txpower)
+    def getTxPowerGivenRange(self, requested_range=None):
+        txpower_solution = GetPowerGivenRange(self).txpower
+        self.setTxPower(txpower_solution)
+        effective_range = float(self.range)
+        if requested_range is None:
+            requested_range = effective_range
+        delta = effective_range - requested_range
         if self.txpower == 1:
-            min_range = int(SetSignalRange(self).range)
-            if self.range < min_range:
-                info('*** {}: the signal range should be '
-                     'changed to (at least) {}m\n'.format(self.name, min_range))
-                info('*** >>> See https://mininet-wifi.github.io/faq/#q7 '
-                     'for more information\n')
-        else:
-            info('*** {}: signal range of {}m requires tx power equals '
-                 'to {}dBm.\n'.format(self.name, self.range, (int(txpower) + 1)))
+            if requested_range > effective_range + 1e-6:
+                info('*** {}: requested {:.2f}m cannot be satisfied because minimum tx power ({} dBm) only yields {:.2f}m (delta {:+.2f}m)\n'
+                     .format(self.name, requested_range, self.txpower, effective_range, delta))
+                info('*** >>> See https://mininet-wifi.github.io/faq/#q7 for more information\n')
+            else:
+                info('*** {}: minimum tx power ({} dBm) yields {:.2f}m for requested {:.2f}m (delta {:+.2f}m)\n'
+                     .format(self.name, self.txpower, effective_range, requested_range, delta))
+            return
+        rounding_note = ''
+        txpower_float = float(txpower_solution)
+        if abs(txpower_float - self.txpower) > 1e-6:
+            rounding_note = ' (rounded from {:.2f} dBm)'.format(txpower_float)
+        info('*** {}: requested {:.2f}m -> effective {:.2f}m (delta {:+.2f}m) using tx power {} dBm{}\n'
+             .format(self.name, requested_range, effective_range, delta, self.txpower, rounding_note))
+        if abs(delta) >= 1.0:
+            info('*** >>> Propagation rounding and tx power granularity prevent an exact match; adjust model parameters if you need a closer range.\n')
 
     def setDefaultRange(self):
         if not self.static_range:
@@ -331,8 +342,9 @@ class IntfWireless(Intf):
         return self.antennaHeight
 
     def setRange(self, range):
-        self.range = float(range)
-        self.getTxPowerGivenRange()
+        requested_range = float(range)
+        self.range = requested_range
+        self.getTxPowerGivenRange(requested_range=requested_range)
         self.node.configLinks()
 
     def setTxPower(self, txpower):
@@ -1466,13 +1478,13 @@ class wmediumd(object):
         self.configWmediumd(**kwargs)
 
     def configWmediumd(self, wlinks, fading_cof, noise_th, stations,
-                       aps, cars, ppm, mediums):
+                       aps, cars, aircrafts, satellites, ppm, mediums):
         "Configure wmediumd"
         intfrefs = []
         isnodeaps = []
         intfs = {}
         intf_ids = {}
-        nodes = stations + aps + cars
+        nodes = stations + aps + cars + aircrafts + satellites
         intf_id = 0
 
         for node in nodes:
@@ -1902,6 +1914,9 @@ class mesh(LinkAttrs):
 
         for k, v in kwargs.items():
             setattr(self, k, params.get(k, v))
+
+        if 'ip6' in params:
+            self.setIP6(params['ip6'])
 
         self.check_channel_band(self.ht_cap)
 

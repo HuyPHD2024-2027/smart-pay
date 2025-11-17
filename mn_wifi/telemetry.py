@@ -11,17 +11,20 @@ telemetry(nodes, **params)
 
 import time
 import warnings
+import math
+from PIL import Image
 from subprocess import check_output as co, PIPE
-import numpy
+import numpy as np
 
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import matplotlib.animation as animation
 
 from matplotlib import style
 from os import path, system as sh
 from threading import Thread as thread
 from datetime import date
-from mn_wifi.node import AP
+from mn_wifi.node import AP, Aircraft, Satellite
 
 
 today = date.today()
@@ -29,6 +32,15 @@ style.use('fivethirtyeight')
 start = time.time()
 util_dir = str(path.realpath(__file__))[:-21] + '/util/m'
 
+
+def plot_background_image(image, axes):
+    bg_img = mpimg.imread(image)
+    axes.imshow(
+        bg_img,
+        extent=[-20_015_000, 20_015_000, -10_007_000, 10_007_000],
+        aspect='auto',
+        zorder=0
+)
 
 class telemetry(object):
     tx = {}
@@ -42,12 +54,14 @@ class telemetry(object):
         parseData.thread_.start()
 
     def start(self, nodes=None, data_type='tx_packets', single=False,
-              min_x=0, min_y=0, max_x=100, max_y=100, **kwargs):
+              min_x=0, min_y=0, max_x=100, max_y=100, image=None, **kwargs):
         ax = 'axes'
         arr = ''
         for node in nodes:
             i = nodes.index(node)
             arr += 'ax{}, '.format(i+1)
+            if not hasattr(node, "heading"):
+                node.heading = 0
         arr1 = (arr[:-2])
         setattr(self, ax, arr1)
 
@@ -64,6 +78,8 @@ class telemetry(object):
                 self.axes.set_xlabel('meters')
                 self.axes.set_xlim([min_x, max_x])
                 self.axes.set_ylim([min_y, max_y])
+                if image:
+                    plot_background_image(image, self.axes)
             else:
                 if single:
                     fig, (self.axes) = plt.subplots(1, 1, figsize=(10, 4))
@@ -71,7 +87,7 @@ class telemetry(object):
                     fig, (self.axes) = plt.subplots(1, (len(nodes)), figsize=(10, 4))
                 #fig.canvas.set_window_title('Mininet-WiFi Graph')
         self.nodes = nodes
-        parseData(nodes, self.axes, single, data_type=data_type, fig=fig, **kwargs)
+        parseData(nodes, self.axes, single, data_type=data_type, fig=fig, image=image, **kwargs)
 
     @classmethod
     def calc(cls, tx_bytes, n):
@@ -168,14 +184,19 @@ class parseData(object):
     fig = None
     filename = None
     single = None
+    image = None
     thread_ = None
     ieee80211_dir = '/sys/class/ieee80211'
     net_dir = '/{}/device/net'
     stats_dir = '/{}/statistics/{}'
     echo_cmd = 'echo \'{},{}\' >> {}'
 
-    def __init__(self, nodes, axes, single, data_type, fig, **kwargs):
-        self.start(nodes, axes, single, data_type, fig, **kwargs)
+    def __init__(self, nodes, axes, single, data_type, fig, image, **kwargs):
+        self.icon = kwargs.get("icon", None)
+        self.icon_width = kwargs.get("icon_width", 10)
+        self.icon_height = kwargs.get("icon_height", 10)
+        self.icon_text_size = kwargs.get("icon_text_size", 10)
+        self.start(nodes, axes, single, data_type, fig, image, **kwargs)
 
     @classmethod
     def fig_exists(cls):
@@ -205,6 +226,37 @@ class parseData(object):
                 node = self.nodes[id]
                 ax.plot(nodes_x[node], nodes_y[node], color=self.colors[id])
 
+    def on_hover(self, event):
+        """Detects if the mouse is over an aircraft and shows a tooltip"""
+        vis = self.annot.get_visible()
+        if event.inaxes == self.axes:
+            for node in self.nodes:
+                x, y = node.position[:2]
+                if abs(event.xdata - x) < 3 and abs(event.ydata - y) < 3:
+                    if isinstance(node, Aircraft):
+                        info = f"✈️ {node.name}"
+                    else:
+                        info = f"{node.name}"
+                    if hasattr(node, "speed"):
+                        info += f"\nSpeed: {node.speed:.2f} km/h"
+                    if hasattr(node, "catnr"):
+                        info += f"\nCATNR: {node.catnr}"
+                    if hasattr(node, "registration"):
+                        info += f"\nRegistration: {node.registration}"
+                    if hasattr(node, "position"):
+                        info += f"\nAltitude: {node.position[2]} m"
+                    if hasattr(node, "aircraft_code"):
+                        info += f"\nCode: {node.aircraft_code}"
+
+                    self.annot.xy = (x, y)
+                    self.annot.set_text(info)
+                    self.annot.set_visible(True)
+                    self.axes.figure.canvas.draw_idle()
+                    return
+        if vis:
+            self.annot.set_visible(False)
+            self.axes.figure.canvas.draw_idle()
+
     def animate(self, i):
         axes = self.axes
         time_ = time.time() - start
@@ -221,20 +273,72 @@ class parseData(object):
 
         if self.data_type == 'position':
             axes.clear()
+            axes.grid(False)
             axes.set_xlim([self.min_x, self.max_x])
             axes.set_ylim([self.min_y, self.max_y])
-            for node in self.nodes:
-                if node.name not in names:
-                    names.append(node.name)
-                x, y, z = get_position(node)
-                sh(self.echo_cmd.format(x, y, self.filename.format(node)))
+            if self.image:
+                plot_background_image(self.image, axes)
 
-                x = node.position[0]
-                y = node.position[1]
-                plt.scatter(x, y, color='black')
-                axes.annotate(node.plttxt.get_text(), (x, y))
-                node.circle.center = x, y
-                axes.add_artist(node.circle)
+            for node in self.nodes:
+                if isinstance(node, Aircraft) or isinstance(node, Satellite):
+                    if hasattr(node, 'heading'):
+                        # Updates the node's position (overrides its move method)
+                        if hasattr(node, 'vx') and hasattr(node, 'vy'):
+                            node.position[0] += node.vx
+                            node.position[1] += node.vy
+
+                        x, y = node.position[:2]
+                        plt.scatter(x, y, color='black')
+
+                        new_name = node.name
+                        if hasattr(node, "registration"):
+                            new_name += '-' + node.registration
+                        node.plttxt = self.axes.annotate(new_name, xy=(x, y),
+                                                         color='black', zorder=2,
+                                                         fontsize=self.icon_text_size)
+
+                        # Tooltip (hover)
+                        self.annot = self.axes.annotate(
+                            "",
+                            xy=(0, 0),
+                            xytext=(10, 10),
+                            textcoords="offset points",
+                            bbox=dict(boxstyle="round", fc="lightyellow", alpha=0.9),
+                            arrowprops=dict(arrowstyle="->")
+                        )
+                        self.annot.set_visible(False)
+                        self.axes.figure.canvas.mpl_connect("motion_notify_event", self.on_hover)
+
+                        # Rotates the plane if there is an icon and it is not AP
+                        if self.icon and isinstance(node, Aircraft):
+                            # Load and rotate image
+                            plane_img = mpimg.imread(self.icon)
+                            img = Image.fromarray((plane_img * 255).astype('uint8'))
+                            rotated_img = img.rotate(-node.heading+45, expand=False)
+                            rotated_arr = np.array(rotated_img)
+
+                            # Plot rotated image
+                            self.axes.imshow(
+                                rotated_arr,
+                                extent=[x - self.icon_width / 2, x + self.icon_width / 2,
+                                        y - self.icon_height / 2, y + self.icon_height / 2],
+                                zorder=1
+                            )
+
+                        #node.circle.center = x, y
+                        #self.axes.add_artist(node.circle)
+                else:
+                    if node.name not in names:
+                        names.append(node.name)
+                    x, y, z = get_position(node)
+                    sh(self.echo_cmd.format(x, y, self.filename.format(node)))
+
+                    x = node.position[0]
+                    y = node.position[1]
+                    plt.scatter(x, y, color='black')
+                    axes.annotate(node.plttxt.get_text(), (x, y), fontsize=10)
+                    node.circle.center = x, y
+                    axes.add_artist(node.circle)
         elif self.data_type == 'rssi':
             for node in self.nodes:
                 for wlan in range(len(node.params['wlan'])):
@@ -283,17 +387,18 @@ class parseData(object):
 
         node.plt_node, = self.axes.plot(1, 1, marker='.', ms=5, color='black')
 
-    def start(self, nodes, axes, single, data_type, fig, **kwargs):
+    def start(self, nodes, axes, single, data_type, fig, image, **kwargs):
         self.nodes = nodes
         self.fig = fig
         self.axes = axes
+        self.image = image
         self.single = single
         self.data_type = data_type
         self.filename = data_type + '-{}-mn-telemetry.txt'
 
         inNamespaceNodes = []
         for node in nodes:
-            self.colors.append(numpy.random.rand(3,))
+            self.colors.append(np.random.rand(3,))
             if not isinstance(node, AP):
                 inNamespaceNodes.append(node)
             if single or data_type == 'position':

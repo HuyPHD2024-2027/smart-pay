@@ -192,6 +192,7 @@ class Node_wifi(Node):
             except:
                 txpower = 14 if isinstance(self, AP) else 20
             return txpower
+        return None
 
     def set_text(self, text):
         self.plttxt.set_text(text)
@@ -227,7 +228,7 @@ class Node_wifi(Node):
             color = self.params['color']
         else:
             color = 'b'
-            if isinstance(self, Station):
+            if isinstance(self, Station) or isinstance(self, Aircraft):
                 color = 'g'
             elif isinstance(self, Car):
                 color = 'r'
@@ -401,7 +402,8 @@ class Node_wifi(Node):
         # the superclass config method here as follows:
         # r = Parent.config( **_params )
         r = {}
-        if not isinstance(self, Station) and not isinstance(self, Car):
+        if (not isinstance(self, Station) and not isinstance(self, Car)
+                and not isinstance(self, Aircraft) and not isinstance(self, Satellite)):
             self.setParam(r, 'setMAC', mac=mac)
         self.setParam(r, 'setIP', ip=ip)
         self.setParam(r, 'setIP6', ip=ip6)
@@ -461,6 +463,16 @@ class Node_wifi(Node):
 
 class Station(Node_wifi):
     "A station is simply a Node"
+    pass
+
+
+class Aircraft(Node_wifi):
+    "A aircraft is simply a Node"
+    pass
+
+
+class Satellite(Node_wifi):
+    "A satellite is simply a Node"
     pass
 
 

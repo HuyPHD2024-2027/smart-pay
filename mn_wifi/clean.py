@@ -76,6 +76,8 @@ class Cleanup(object):
         cls.killprocs('btvirt')
         sleep(0.1)
         cls.sh('pkill babel')
+        cls.sh('pkill aodv')
+        cls.kill_mod('kaodv')
         cls.sh('pkill batmand')
 
         w_server.disconnect()

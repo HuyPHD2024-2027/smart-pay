@@ -219,12 +219,13 @@ function wifi_deps {
             sudo ${PYTHON} get-pip.py
             rm get-pip.py
         fi
+        ${PYTHON} -m pip install "numpy<2" FlightRadarAPI pillow bitstring skyfield requests --break-system-packages
         $install iproute2 || $install iproute
         $install cgroup-tools || $install cgroup-bin
     fi
 
     echo "Installing Mininet-WiFi dependencies"
-    $install wireless-tools rfkill ${PYPKG}-numpy pkg-config libnl-route-3-dev \
+    $install wireless-tools rfkill pkg-config libnl-route-3-dev \
              libnl-3-dev libnl-genl-3-dev libssl-dev make libevent-dev patch \
              libdbus-1-dev ${PYPKG}-psutil ${PYPKG}-matplotlib
 
@@ -271,6 +272,20 @@ function babeld {
         fi
     git clone --depth=1 https://github.com/jech/babeld
     cd $BUILD_DIR/mininet-wifi/babeld
+    make
+    sudo make install
+}
+
+function aodv {
+    echo "Installing aodv..."
+
+    cd $BUILD_DIR/mininet-wifi
+    if [ -d aodv-uu ]; then
+          echo "Removing aodv..."
+          rm -r aodv
+        fi
+    git clone --depth=1 https://github.com/ramonfontes/aodv-uu
+    cd $BUILD_DIR/mininet-wifi/aodv-uu
     make
     sudo make install
 }
@@ -434,6 +449,26 @@ function network_manager {
     sudo make install
 }
 
+# Install rpld
+function rpld {
+    echo "Installing rpld..."
+
+    # Install deps
+    $install meson cmake libev-dev lua5.3 liblua5.3-dev libmnl-dev
+
+    cd $BUILD_DIR/mininet-wifi
+    if [ -d rpld ]; then
+      echo "Removing rpld dir..."
+      rm -r rpld
+    fi
+    git clone --depth=1 https://github.com/ramonfontes/rpld
+    cd rpld
+    mkdir build
+    meson build
+    ninja -C build
+    cp build/rpld /usr/bin
+}
+
 # Install ModemManager
 function modem_manager {
     echo "Installing Modem Manager..."
@@ -529,6 +564,8 @@ function of {
     fi
     if [ "$DIST" = "Ubuntu" ] &&  [ `expr $RELEASE '>=' 24.04` = "1" ]; then
         git clone --depth=1 https://github.com/ramonfontes/openflow
+    elif [ "$DIST" = "Debian" ]; then
+        git clone --depth=1 https://github.com/ramonfontes/openflow -b debian
     else
         git clone --depth=1 https://github.com/mininet/openflow
     fi
@@ -776,6 +813,7 @@ function all {
     wmediumd
     wmediumd_802154
     babeld
+    aodv
     olsrd
     olsrdv2
     batman
@@ -817,7 +855,7 @@ function vm_clean {
 }
 
 function usage {
-    printf '\nUsage: %s [-abBcdEfhiklmMnNOpPrStvVxy013]\n\n' $(basename $0) >&2
+    printf '\nUsage: %s [-aAbBcdEfhiklmMnNOpPrStvVxy03]\n\n' $(basename $0) >&2
 
     printf 'This install script attempts to install useful packages\n' >&2
     printf 'for Mininet. It should (hopefully) work on Ubuntu 11.10+\n' >&2
@@ -827,6 +865,7 @@ function usage {
 
     printf 'options:\n' >&2
     printf -- ' -a: (default) install (A)ll packages - good luck!\n' >&2
+    printf -- ' -A: install aodv\n' >&2
     printf -- ' -B: install B.A.T.M.A.N\n' >&2
     printf -- ' -d: (D)elete some sensitive files from a VM image\n' >&2
     printf -- ' -e: install Mininet d(E)veloper dependencies\n' >&2
@@ -844,6 +883,7 @@ function usage {
     printf -- ' -O: install olsrd\n' >&2
     printf -- ' -p: install P4 dependencies\n' >&2
     printf -- ' -r: remove existing Open vSwitch packages\n' >&2
+    printf -- ' -R: install RPLD\n' >&2
     printf -- ' -s <dir>: place dependency (S)ource/build trees in <dir>\n' >&2
     printf -- ' -S: install SUMO\n' >&2
     printf -- ' -t: install btvirt dependencies\n' >&2
@@ -863,10 +903,11 @@ if [ $# -eq 0 ]
 then
     all
 else
-    while getopts 'aBdeEfhiklmMnNoOPrSstvWxz036' OPTION
+    while getopts 'aABdeEfhiklmMnNoOPrRSstvWxz036' OPTION
     do
       case $OPTION in
       a)    all;;
+      A)    aodv;;
       B)    batman;;
       d)    vm_clean;;
       e)    mn_dev;;
@@ -888,6 +929,7 @@ else
       O)    olsrd;;
       P)    p4_deps;;
       r)    remove_ovs;;
+      R)    rpld;;
       s)    mkdir -p $OPTARG; # ensure the directory is created
             BUILD_DIR="$( cd -P "$OPTARG" && pwd )"; # get the full path
             echo "Dependency installation directory: $BUILD_DIR";;
