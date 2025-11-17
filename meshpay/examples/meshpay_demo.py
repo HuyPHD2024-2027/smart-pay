@@ -25,7 +25,6 @@ Options:
     --plot              Enable network visualization
     --logs              Open xterm for each node
     --mesh-id ID        Mesh network identifier (default: fastpay-mesh)
-    --security          Enable mesh security (default: True)
 """
 
 from __future__ import annotations
@@ -66,8 +65,7 @@ from mn_wifi.examples.demoCommon import (
 def create_mesh_network_with_internet(
     num_authorities: int = 5,
     num_clients: int = 3,
-    mesh_id: str = "fastpay-mesh",
-    enable_security: bool = True,
+    mesh_id: str = "meshpay",
     enable_mobility: bool = True,
     enable_plot: bool = False,
     enable_internet: bool = False,
@@ -79,7 +77,6 @@ def create_mesh_network_with_internet(
         num_authorities: Number of authority nodes to create
         num_clients: Number of client nodes to create
         mesh_id: Mesh network identifier
-        enable_security: Enable mesh security (WPA3-SAE)
         enable_mobility: Enable mobility models
         enable_plot: Enable network visualization
         enable_internet: Enable internet gateway bridge
@@ -106,8 +103,8 @@ def create_mesh_network_with_internet(
             committee_members=committee - {name},
             ip=f"10.0.0.{10 + i}/8",
             port=8000 + i,
-            # position=[20 + (i * 25), 40, 0],
-            range=58,
+            min_x=0, max_x=200, min_y=0, max_y=150, min_v=5, max_v=10,
+            range=20,
             txpower=20,
         )
         authorities.append(auth)
@@ -121,9 +118,9 @@ def create_mesh_network_with_internet(
             cls=Client,  
             ip=f"10.0.0.{20 + i}/8",
             port=9000 + i,
-            # position=[30 + (i * 20), 20, 0],
-            range=58,
-            txpower=15,
+            min_x=0, max_x=200, min_y=0, max_y=150, min_v=1, max_v=3,    
+            range=20,
+            txpower=20,
         )
         clients.append(client)
     
@@ -181,7 +178,7 @@ def create_mesh_network_with_internet(
         info("*** Setting up mesh mobility\n")
         net.setMobilityModel(
             time=0,
-            model='RandomWaypoint',
+            model='RandomDirection',
             max_x=200,
             max_y=150,
             min_v=1,
@@ -296,7 +293,6 @@ def main() -> None:
     info(f"   Mesh ID: {args.mesh_id}\n")
     info(f"   Internet Gateway: {'Enabled' if args.internet else 'Disabled'}\n")
     info(f"   Gateway Port: {args.gateway_port}\n")
-    info(f"   Security: {'Enabled' if not args.no_security else 'Disabled'}\n")
     info(f"   Mobility: {'Enabled' if args.mobility else 'Disabled'}\n")
     
     net = None
@@ -307,7 +303,6 @@ def main() -> None:
             num_authorities=args.authorities,
             num_clients=args.clients,
             mesh_id=args.mesh_id,
-            enable_security=not args.no_security,
             enable_mobility=args.mobility,
             enable_plot=args.plot,
             enable_internet=args.internet,

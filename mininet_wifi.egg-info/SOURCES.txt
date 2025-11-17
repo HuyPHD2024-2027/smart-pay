@@ -37,6 +37,7 @@ mn_wifi/energy.py
 mn_wifi/frequency.py
 mn_wifi/link.py
 mn_wifi/manetRoutingProtocols.py
+mn_wifi/mesh_metrics.py
 mn_wifi/metrics.py
 mn_wifi/mobility.py
 mn_wifi/module.py
@@ -71,6 +72,7 @@ mn_wifi/examples/associationControl.py
 mn_wifi/examples/authentication.py
 mn_wifi/examples/authority.py
 mn_wifi/examples/battery.py
+mn_wifi/examples/ble_gateway.py
 mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/demoCommon.py
 mn_wifi/examples/forwardingBySSID.py

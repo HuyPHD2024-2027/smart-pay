@@ -54,15 +54,19 @@ class Client(Station):
         transport: Optional[NetworkTransport] = None,
         ip: str = "10.0.0.100/8",
         port: int = 9000,
-        position: Optional[List[float]] = None,
         **params,
     ) -> None:
         """Create a new client station."""
 
         default_params = {
             "ip": ip,
-            "position": position or [0, 0, 0],
-            "range": 100,
+            "min_x": 0,
+            "max_x": 200,
+            "min_y": 0,
+            "max_y": 150,
+            "min_v": 1,
+            "max_v": 3,
+            "range": 20,
             "txpower": 20,
             "antennaGain": 5,
         }

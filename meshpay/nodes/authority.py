@@ -101,8 +101,13 @@ class WiFiAuthority(Station):
 
         default_params = {
             "ip": ip,
-            "position": position or [0, 0, 0],
-            "range": 100,
+            "min_x": 0,
+            "max_x": 200,
+            "min_y": 0,
+            "max_y": 150,
+            "min_v": 5,
+            "max_v": 10,
+            "range": 20,
             "txpower": 20,
             "antennaGain": 5,
         }
