@@ -88,8 +88,8 @@ def create_mesh_network_with_internet(
     info("🕸️  Creating IEEE 802.11s Mesh Network with Internet Gateway\n")
     
     # Create network without access points
-    # net = Mininet_wifi(link=wmediumd, wmediumd_mode=interference)
-    net = Mininet_wifi()
+    net = Mininet_wifi(link=wmediumd, wmediumd_mode=interference)
+    # net = Mininet_wifi()
 
     # Create authorities as mesh points
     authorities: List[WiFiAuthority] = []

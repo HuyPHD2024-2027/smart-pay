@@ -219,7 +219,6 @@ function wifi_deps {
             sudo ${PYTHON} get-pip.py
             rm get-pip.py
         fi
-        ${PYTHON} -m pip install "numpy<2" FlightRadarAPI pillow bitstring skyfield requests --break-system-packages
         $install iproute2 || $install iproute
         $install cgroup-tools || $install cgroup-bin
     fi
@@ -786,7 +785,6 @@ function wpan_tools {
     sudo make install
     popd
 }
-
 
 function all {
     if [ "$DIST" = "Fedora" ]; then

@@ -75,6 +75,7 @@ mn_wifi/examples/battery.py
 mn_wifi/examples/ble_gateway.py
 mn_wifi/examples/coherenceModel.py
 mn_wifi/examples/demoCommon.py
+mn_wifi/examples/flightRadar24.py
 mn_wifi/examples/forwardingBySSID.py
 mn_wifi/examples/handover.py
 mn_wifi/examples/handover_bgscan.py
@@ -89,6 +90,7 @@ mn_wifi/examples/physicalMesh.py
 mn_wifi/examples/physicalWifiDirect.py
 mn_wifi/examples/position.py
 mn_wifi/examples/propagationModel.py
+mn_wifi/examples/satellite.py
 mn_wifi/examples/sflow.py
 mn_wifi/examples/simplewifitopology.py
 mn_wifi/examples/socket_client.py

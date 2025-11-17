@@ -48,8 +48,8 @@ slowtest: $(MININET_WIFI)
 	mn_wifi/examples/test/runner.py -v
 
 mnexec: mnexec.c $(MN) mn_wifi/net.py
-	$(CC) $(CFLAGS) $(LDFLAGS) -DVERSION=\"$(VERSION)\" $< -o $@
-	
+	cc $(CFLAGS) $(LDFLAGS) -DVERSION=\"`PYTHONPATH=. $(PYMN) --version`\" $< -o $@
+
 install-mnexec: $(MNEXEC)
 	install -D $(MNEXEC) $(BINDIR)/$(MNEXEC)
 
@@ -57,13 +57,13 @@ install-manpages: $(MANPAGES)
 	install -D -t $(MANDIR) $(MANPAGES)
 
 install: install-mnexec install-manpages
-	$(PYTHON) -B setup.py install
+	$(PYTHON) setup.py install
 
 develop: $(MNEXEC) $(MANPAGES)
 # 	Perhaps we should link these as well
 	install $(MNEXEC) $(BINDIR)
 	install $(MANPAGES) $(MANDIR)
-	$(PYTHON) -B setup.py develop
+	$(PYTHON) setup.py develop
 
 man: $(MANPAGES)
 

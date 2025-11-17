@@ -1,2 +1,2 @@
-run_label,duration_s,transactions_started,transactions_succeeded,transactions_failed,success_rate_pct,throughput_tps,network_tx_bps,network_rx_bps,min_latency_ms,avg_latency_ms,p50_latency_ms,p95_latency_ms,p99_latency_ms,max_latency_ms,latency_samples,bytes_sent,bytes_received
-benchmark,31.765,112,370,0,330.36,11.648,5077.23,20500.33,0.00,0.00,0.00,0.00,0.00,0.00,0,20160,81400
+authorities,user_nodes,faulty_nodes,transmission_range_m,throughput_tps,avg_latency_s
+5,5,0,20,16.209,0.000

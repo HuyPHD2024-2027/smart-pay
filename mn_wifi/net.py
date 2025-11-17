@@ -13,7 +13,6 @@ from time import sleep
 from datetime import datetime, timezone
 from sys import exit
 
-from FlightRadar24 import FlightRadar24API
 from mininet.cli import CLI
 from mininet.link import Link, TCLink, TCULink
 from mininet.log import info, error, debug, output, warn
@@ -26,7 +25,6 @@ from mininet.util import (macColonHex, ipStr, ipParse, ipAdd,
 from six import string_types
 
 from mn_wifi.clean import Cleanup as CleanupWifi
-from mn_wifi.aviation import aviationProtocol
 from mn_wifi.energy import Energy, EnergyMonitor
 from mn_wifi.link import IntfWireless, wmediumd, _4address, HostapdConfig, \
     WirelessLink, TCWirelessLink, ITSLink, WifiDirectLink, adhoc, mesh, \
@@ -406,44 +404,6 @@ class Mininet_wifi(Mininet, Mininet_IoT, Mininet_WWAN, Mininet_btvirt):
         dy = R * dlat
         dx = R * math.cos(math.radians(ref_lat)) * dlon
         return dx, dy
-
-    def configureAircrafts(self, lat, long, range, protocol=None):
-        fr_api = FlightRadar24API()
-        #zone = fr_api.get_zones()["europe"]
-        #airlines = fr_api.get_airlines()
-        bounds = fr_api.get_bounds_by_point(lat, long, range)
-
-        mob.thread_ = thread(
-            name='flightRadar',
-            target=self.init_FlightRadar24API,
-            kwargs={'fr_api': fr_api, 'bounds': bounds, 'protocol': protocol}
-        )
-        mob.thread_.daemon = True
-        mob.thread_._keep_alive = True
-        mob.thread_.start()
-
-    def init_FlightRadar24API(self, fr_api, bounds, protocol):
-        flights = fr_api.get_flights(bounds=bounds)
-        selected_ids = [flight.id for flight in flights[:len(self.aircrafts)]]
-        compute_interval = 5
-
-        for id, airCraft in enumerate (self.aircrafts):
-            airCraft.registration = flights[id].registration
-            airCraft.aircraft_code = flights[id].aircraft_code
-            airCraft.icao_24bit = flights[id].icao_24bit
-            airCraft.heading = flights[id].heading
-
-        while mob.thread_._keep_alive:
-            flights = fr_api.get_flights(bounds=bounds)
-            selected = [f for f in flights if f.id in selected_ids]
-            for airCraft in self.aircrafts:
-                if mob.thread_._keep_alive:
-                    flight = next((f for f in selected if f.id in selected_ids[self.aircrafts.index(airCraft)]), None)
-                    if flight and hasattr(airCraft, 'circle'):
-                        dx, dy = self.deg_to_meters(flight.latitude, flight.longitude)
-                        airCraft.setPosition(f"{dx},{dy},{flight.altitude}")
-                        aviationProtocol.load(airCraft, flight, protocol)
-            sleep(compute_interval)
 
     def configureSatellites(self, tle_file, start_time=None):
         mob.thread_ = thread(
